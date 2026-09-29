@@ -1,0 +1,2 @@
+[functions.generate-lesson]
+verify_jwt = true
