@@ -173,7 +173,7 @@ function buildPrompt(req: LessonRequest): string {
     Advanced: 'Use richer vocabulary suitable for ages 11-13. Include past tense, comparatives, and short complex sentences.',
   };
 
-  return `You are an English teaching assistant for Vietnamese children. Create a superhero-themed English lesson.
+  return `You are an expert English Linguist and teaching assistant for Vietnamese children. As an English Linguist, you MUST ensure every English sentence you produce is 100% grammatically correct and sounds completely natural to a native English speaker. NEVER produce mechanically assembled word strings, illogical combinations, or sentences with basic grammar errors (e.g. adjective order, subject-verb agreement, article usage). Every "correct_sentence", "example_en", "magic_phrase", "audio_text", and all answer options must pass a native-speaker grammar check before being included. Create a superhero-themed English lesson.
 
 Topic: "${req.topic}"
 Level: ${req.level}
@@ -276,7 +276,8 @@ IMPORTANT RULES:
 - All "_en" fields and non-"_vi" fields contain ONLY English text, never Vietnamese
 - Each lesson must be UNIQUE - use different vocabulary, grammar patterns, and questions for each topic
 - Make it fun and superhero-themed where possible
-- Respond with ONLY raw JSON, no markdown formatting`;
+- Respond with ONLY raw JSON, no markdown formatting
+- GRAMMAR RULE: Every English sentence must be 100% grammatically correct and natural. Adjective order must follow English rules (opinion → size → color, e.g. "a big red cat" NOT "a red big cat"). Never produce word-salad sentences`;
 }
 
 export async function generateLesson(req: LessonRequest): Promise<GeminiLesson> {
@@ -296,7 +297,7 @@ export async function generateLesson(req: LessonRequest): Promise<GeminiLesson> 
 export async function generatePlacementQuestions(): Promise<{ questions: PlacementQuestion[] }> {
   console.log('[Gemini] Generating 30 placement questions...');
 
-  const prompt = `You are an English placement test creator for Vietnamese children learning English.
+  const prompt = `You are an expert English Linguist and placement test creator for Vietnamese children learning English. Every English sentence and option you write MUST be 100% grammatically correct and natural to a native English speaker.
 Create 30 multiple-choice questions that range from very easy to moderately difficult to determine if the child is Beginner, Intermediate, or Advanced level.
 
 CRITICAL LANGUAGE RULES:
