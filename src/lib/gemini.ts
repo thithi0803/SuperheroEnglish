@@ -214,7 +214,7 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
   "stage2": {
     "multiple_choice": [
       {
-        "question_en": "English question (English only)",
+        "question_en": "English question using an emoji to represent the subject (e.g. 'What color is 🐶?' NOT 'What color is the red dog?')",
         "question_vi": "Vietnamese translation of the question (Vietnamese only)",
         "options": ["English option 1", "English option 2", "English option 3", "English option 4"],
         "correct_index": 0,
@@ -265,6 +265,7 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
 IMPORTANT RULES:
 - Generate exactly 3 vocabulary items in stage1.vocab
 - Generate exactly 3 multiple choice questions in stage2.multiple_choice
+- CRITICAL for multiple_choice: The question MUST NOT reveal the answer. Use an emoji to represent the subject instead of describing it with words that give away the answer. For example: ask "What color is 🐶?" NOT "What color is the red dog?". Ask "What sound does 🐱 make?" NOT "What sound does the meowing cat make?"
 - The fill_in_blank.sentence MUST contain "___" (three underscores) at the missing word position
 - The fill_in_blank.options must have exactly 4 English word choices
 - The sentence_builder.scrambled_words should have 5-6 English words to arrange
