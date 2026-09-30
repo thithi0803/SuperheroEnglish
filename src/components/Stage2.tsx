@@ -138,8 +138,7 @@ export function Stage2({ lesson, onComplete }: Props) {
       {currentType === 'mc' && multiple_choice[mcIndex] && (
         <div key={`mc-${exerciseIndex}`} className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
           <span className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-2 block">Trắc Nghiệm</span>
-          <p className="text-lg font-bold text-white mb-1">{multiple_choice[mcIndex].question_vi}</p>
-          <p className="text-sm text-slate-400 mb-5">{multiple_choice[mcIndex].question_en}</p>
+          <p className="text-lg font-bold text-white mb-5">{multiple_choice[mcIndex].question_en}</p>
 
           <div className="space-y-3">
             {multiple_choice[mcIndex].options.map((option, index) => {
@@ -179,8 +178,7 @@ export function Stage2({ lesson, onComplete }: Props) {
       {currentType === 'fill' && (
         <div key="fill" className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
           <span className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-2 block">Điền Từ</span>
-          <p className="text-lg font-bold text-white mb-1">Chọn từ đúng điền vào chỗ trống</p>
-          <p className="text-sm text-slate-400 mb-5">{fill_in_blank.translation_vi}</p>
+          <p className="text-lg font-bold text-white mb-5">Chọn từ đúng điền vào chỗ trống</p>
 
           <div className="rounded-xl bg-slate-900/60 border border-teal-500/20 p-5 mb-5">
             <p className="text-xl font-bold text-white leading-relaxed">
@@ -290,14 +288,13 @@ export function Stage2({ lesson, onComplete }: Props) {
             }`}>
               {sentenceCorrect ? (
                 <p className="text-sm text-green-400 flex items-center gap-2">
-                  <Check className="w-4 h-4" /> Chính xác! "{sentence_builder.correct_sentence}" - {sentence_builder.translation_vi}
+                  <Check className="w-4 h-4" /> Chính xác! "{sentence_builder.correct_sentence}"
                 </p>
               ) : (
                 <div>
                   <p className="text-sm text-red-400 flex items-center gap-2 mb-1">
                     <X className="w-4 h-4" /> Chưa đúng. Đáp án: "{sentence_builder.correct_sentence}"
                   </p>
-                  <p className="text-sm text-slate-400">{sentence_builder.translation_vi}</p>
                 </div>
               )}
             </div>
