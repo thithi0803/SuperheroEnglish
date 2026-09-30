@@ -158,8 +158,7 @@ export function PlacementTest({ onComplete }: Props) {
         </div>
 
         <div key={current} className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
-          <p className="text-lg font-bold text-white mb-1">{question.question_vi}</p>
-          <p className="text-sm text-slate-400 italic mb-6">{question.question_en}</p>
+          <p className="text-xl font-bold text-white mb-6">{question.question_en}</p>
 
           <div className="space-y-3">
             {question.options.map((option, index) => {
