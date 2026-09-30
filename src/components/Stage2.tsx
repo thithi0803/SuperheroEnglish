@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { GeminiLesson } from '@/types';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
 import { Check, X, ArrowRight, Volume2, Shuffle, ArrowLeft, Zap, PenLine } from 'lucide-react';
@@ -13,6 +13,21 @@ type ExerciseType = 'mc' | 'fill' | 'sentence' | 'listening';
 export function Stage2({ lesson, onComplete }: Props) {
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const { multiple_choice, sentence_builder, listening, fill_in_blank } = lesson.stage2;
+
+  const scrambledWords = useMemo(() => {
+    const words = sentence_builder.correct_sentence.split(/\s+/).filter(Boolean);
+    const shuffled = [...words];
+    let seed = sentence_builder.correct_sentence.length + 1;
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      seed = (seed * 9301 + 49297) % 233280;
+      const j = Math.floor((seed / 233280) * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    if (shuffled.join(' ').toLowerCase() === sentence_builder.correct_sentence.toLowerCase().trim() && shuffled.length > 1) {
+      [shuffled[0], shuffled[1]] = [shuffled[1], shuffled[0]];
+    }
+    return shuffled;
+  }, [sentence_builder.correct_sentence]);
 
   const [exerciseIndex, setExerciseIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -85,7 +100,7 @@ export function Stage2({ lesson, onComplete }: Props) {
   };
 
   const submitSentence = () => {
-    const constructed = sentenceOrder.map((i) => sentence_builder.scrambled_words[i]).join(' ');
+    const constructed = sentenceOrder.map((i) => scrambledWords[i]).join(' ');
     const correct = constructed.toLowerCase().trim() === sentence_builder.correct_sentence.toLowerCase().trim();
     setSentenceCorrect(correct);
     setSentenceSubmitted(true);
@@ -254,7 +269,7 @@ export function Stage2({ lesson, onComplete }: Props) {
                 onClick={() => toggleWord(wordIdx)}
                 className="px-3 py-2 rounded-lg bg-purple-500/20 border border-purple-500/40 text-white font-bold text-sm cursor-pointer hover:bg-purple-500/30 transition-all"
               >
-                {sentence_builder.scrambled_words[wordIdx]}
+                {scrambledWords[wordIdx]}
               </span>
             ))}
           </div>
@@ -262,7 +277,7 @@ export function Stage2({ lesson, onComplete }: Props) {
           {/* Scrambled words */}
           {!sentenceSubmitted && (
             <div className="flex flex-wrap gap-2 mb-4">
-              {sentence_builder.scrambled_words.map((word, index) => {
+              {scrambledWords.map((word, index) => {
                 const used = sentenceOrder.includes(index);
                 return (
                   <button
