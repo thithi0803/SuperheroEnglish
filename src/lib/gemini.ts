@@ -1,13 +1,21 @@
 import type { GeminiLesson, Level, PlacementQuestion } from '@/types';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-flash-lite-latest';
+const GEMINI_MODEL = 'gemini-1.5-pro-latest';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+const API_TIMEOUT_MS = 30000;
 
 interface LessonRequest {
   topic: string;
   level: Level;
   lessonIndex: number;
+}
+
+class GeminiError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeminiError';
+  }
 }
 
 function cleanResponse(text: string): string {
@@ -24,32 +32,64 @@ function parseJsonResponse<T>(text: string): T {
     return JSON.parse(cleaned) as T;
   } catch {
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Could not parse response as JSON');
-    return JSON.parse(jsonMatch[0]) as T;
+    if (!jsonMatch) throw new GeminiError('Không thể phân tích phản hồi từ AI. Vui lòng thử lại.');
+    try {
+      return JSON.parse(jsonMatch[0]) as T;
+    } catch {
+      throw new GeminiError('AI trả về dữ liệu không hợp lệ. Vui lòng thử lại.');
+    }
   }
+}
+
+function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
+  return new Promise((resolve, reject) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+      reject(new GeminiError('AI phản hồi quá chậm. Vui lòng thử lại.'));
+    }, timeoutMs);
+
+    fetch(url, { ...options, signal: controller.signal })
+      .then((res) => {
+        clearTimeout(timer);
+        resolve(res);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        if (err.name === 'AbortError') {
+          reject(new GeminiError('AI phản hồi quá chậm. Vui lòng thử lại.'));
+        } else {
+          reject(err);
+        }
+      });
+  });
 }
 
 async function callGemini(prompt: string, maxRetries = 2): Promise<string> {
   if (!GEMINI_API_KEY) {
-    throw new Error('VITE_GEMINI_API_KEY is not set');
+    throw new GeminiError('Chưa cấu hình khóa API Gemini. Vui lòng liên hệ quản trị viên.');
   }
 
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const response = await fetch(GEMINI_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.8,
-            maxOutputTokens: 8192,
-            responseMimeType: 'application/json',
-          },
-        }),
-      });
+      const response = await fetchWithTimeout(
+        GEMINI_URL,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.8,
+              maxOutputTokens: 8192,
+              responseMimeType: 'application/json',
+            },
+          }),
+        },
+        API_TIMEOUT_MS,
+      );
 
       if (response.status === 503 && attempt < maxRetries) {
         console.warn(`[Gemini] 503 Service Unavailable, retrying (${attempt + 1}/${maxRetries})...`);
@@ -59,29 +99,40 @@ async function callGemini(prompt: string, maxRetries = 2): Promise<string> {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Gemini API error ${response.status}: ${errorText}`);
+        console.error(`[Gemini] API error ${response.status}: ${errorText}`);
+        if (response.status === 429) {
+          throw new GeminiError('AI đang quá tải. Vui lòng đợi một chút rồi thử lại.');
+        }
+        if (response.status === 400 || response.status === 404) {
+          throw new GeminiError('Model AI không khả dụng. Vui lòng thử lại sau.');
+        }
+        throw new GeminiError('AI gặp lỗi kỹ thuật. Vui lòng thử lại.');
       }
 
       const data = await response.json();
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!text) {
-        throw new Error('Gemini API returned no content');
+        throw new GeminiError('AI không trả về nội dung. Vui lòng thử lại.');
       }
 
       return text;
     } catch (err) {
+      if (err instanceof GeminiError && (err.message.includes('quá chậm') || err.message.includes('quá tải') || err.message.includes('không khả dụng'))) {
+        throw err;
+      }
       lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt < maxRetries && !(err instanceof Error && err.message.includes('API error'))) {
+      if (attempt < maxRetries) {
         console.warn(`[Gemini] Attempt ${attempt + 1} failed, retrying...`, lastError.message);
         await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
         continue;
       }
-      throw lastError;
+      if (err instanceof GeminiError) throw err;
+      throw new GeminiError('Không thể kết nối tới AI. Vui lòng kiểm tra mạng và thử lại.');
     }
   }
 
-  throw lastError || new Error('Unknown Gemini API error');
+  throw lastError || new GeminiError('Lỗi không xác định từ AI. Vui lòng thử lại.');
 }
 
 export function getTopicList(): { topic: string; emoji: string }[] {
@@ -112,56 +163,69 @@ Topic: "${req.topic}"
 Level: ${req.level}
 ${levelGuidance[req.level]}
 
+CRITICAL LANGUAGE RULES:
+- ALL English text fields MUST contain ONLY English. NEVER mix Vietnamese into English fields.
+- ALL Vietnamese text fields MUST contain ONLY Vietnamese. NEVER mix English into Vietnamese fields.
+- The "translation" or "_vi" fields are SEPARATE translations, not mixed-language text.
+- Fill-in-the-blank sentences MUST use three underscores "___" at the missing word position.
+
 Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, no markdown, no code fences):
 
 {
   "lesson_key": "${req.topic}-${req.level}-${req.lessonIndex}",
-  "title_vi": "Vietnamese title for the lesson",
-  "title_en": "English title for the lesson",
+  "title_vi": "Vietnamese title for the lesson (Vietnamese only)",
+  "title_en": "English title for the lesson (English only)",
   "topic": "${req.topic}",
   "level": "${req.level}",
   "emoji": "single emoji representing the topic",
   "stage1": {
-    "intro_vi": "Vietnamese intro telling the child they will learn vocabulary and a grammar pattern to prepare for battle",
-    "intro_en": "English version of the intro",
+    "intro_vi": "Vietnamese intro (Vietnamese only)",
+    "intro_en": "English intro (English only)",
     "vocab": [
-      {"word": "English word", "emoji": "emoji", "meaning_vi": "Vietnamese meaning", "example_en": "Short English example sentence", "example_vi": "Vietnamese translation of example"},
+      {"word": "English word", "emoji": "emoji", "meaning_vi": "Vietnamese meaning (Vietnamese only)", "example_en": "English example sentence (English only)", "example_vi": "Vietnamese translation (Vietnamese only)"},
       {"word": "...", "emoji": "...", "meaning_vi": "...", "example_en": "...", "example_vi": "..."},
       {"word": "...", "emoji": "...", "meaning_vi": "...", "example_en": "...", "example_vi": "..."}
     ],
     "grammar": {
-      "pattern": "Short grammar pattern (e.g. I am ___)",
-      "explanation_vi": "Vietnamese explanation of the pattern",
-      "example_en": "English example sentence using the pattern",
-      "example_vi": "Vietnamese translation"
+      "pattern": "Short grammar pattern in English (e.g. I am ___)",
+      "explanation_vi": "Vietnamese explanation (Vietnamese only)",
+      "example_en": "English example sentence (English only)",
+      "example_vi": "Vietnamese translation (Vietnamese only)"
     },
-    "magic_phrase": "A short English sentence the child will say in Stage 3 to defeat the boss (uses the grammar pattern)",
-    "magic_phrase_vi": "Vietnamese translation of the magic phrase"
+    "magic_phrase": "Short English sentence (English only)",
+    "magic_phrase_vi": "Vietnamese translation (Vietnamese only)"
   },
   "stage2": {
     "multiple_choice": [
       {
-        "question_vi": "Vietnamese question asking to choose the correct English word/answer",
-        "question_en": "English version",
-        "options": ["option1", "option2", "option3", "option4"],
+        "question_en": "English question (English only)",
+        "question_vi": "Vietnamese translation of the question (Vietnamese only)",
+        "options": ["English option 1", "English option 2", "English option 3", "English option 4"],
         "correct_index": 0,
-        "explanation_vi": "Vietnamese explanation of why the answer is correct"
+        "explanation_vi": "Vietnamese explanation (Vietnamese only)"
       },
       {
-        "question_vi": "...", "question_en": "...", "options": ["...", "...", "...", "..."], "correct_index": 0, "explanation_vi": "..."
+        "question_en": "...", "question_vi": "...", "options": ["...", "...", "...", "..."], "correct_index": 0, "explanation_vi": "..."
       },
       {
-        "question_vi": "...", "question_en": "...", "options": ["...", "...", "...", "..."], "correct_index": 0, "explanation_vi": "..."
+        "question_en": "...", "question_vi": "...", "options": ["...", "...", "...", "..."], "correct_index": 0, "explanation_vi": "..."
       }
     ],
+    "fill_in_blank": {
+      "sentence": "English sentence with ___ at the missing word position (English only, MUST contain ___)",
+      "translation_vi": "Vietnamese translation of the full sentence (Vietnamese only)",
+      "options": ["English word 1", "English word 2", "English word 3", "English word 4"],
+      "correct_index": 0,
+      "explanation_vi": "Vietnamese explanation (Vietnamese only)"
+    },
     "sentence_builder": {
-      "instruction_vi": "Vietnamese instruction asking the child to arrange words into a correct sentence",
-      "scrambled_words": ["word1", "word2", "word3", "word4", "word5"],
-      "correct_sentence": "The correct sentence formed from the words",
-      "translation_vi": "Vietnamese translation of the correct sentence"
+      "instruction_vi": "Vietnamese instruction (Vietnamese only)",
+      "scrambled_words": ["English word 1", "English word 2", "English word 3", "English word 4", "English word 5"],
+      "correct_sentence": "The correct English sentence (English only)",
+      "translation_vi": "Vietnamese translation (Vietnamese only)"
     },
     "listening": {
-      "audio_text": "An English sentence for the child to listen to and choose the matching image",
+      "audio_text": "English sentence for listening (English only)",
       "image_options": [
         {"emoji": "emoji1", "label": "English label 1"},
         {"emoji": "emoji2", "label": "English label 2"},
@@ -173,10 +237,10 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
   },
   "stage3": {
     "boss_challenge": {
-      "magic_phrase_en": "The English magic phrase the child must speak aloud (same as stage1 magic_phrase)",
-      "magic_phrase_vi": "Vietnamese translation",
+      "magic_phrase_en": "English magic phrase (English only)",
+      "magic_phrase_vi": "Vietnamese translation (Vietnamese only)",
       "boss_emoji": "emoji for the boss monster",
-      "boss_name": "English name for the boss",
+      "boss_name": "English name for the boss (English only)",
       "boss_hp": 100
     }
   }
@@ -185,24 +249,31 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
 IMPORTANT RULES:
 - Generate exactly 3 vocabulary items in stage1.vocab
 - Generate exactly 3 multiple choice questions in stage2.multiple_choice
-- The sentence_builder.scrambled_words should have 5-6 words to arrange
-- The listening.audio_text should be a simple sentence related to the topic
+- The fill_in_blank.sentence MUST contain "___" (three underscores) at the missing word position
+- The fill_in_blank.options must have exactly 4 English word choices
+- The sentence_builder.scrambled_words should have 5-6 English words to arrange
+- The listening.audio_text should be a simple English sentence related to the topic
 - The listening image_options should have 4 choices with emojis
 - The magic_phrase should use the grammar pattern from stage1
-- All Vietnamese text should be natural Vietnamese
-- All English should be at the appropriate difficulty for the level
+- All "_vi" fields contain ONLY Vietnamese text, never English
+- All "_en" fields and non-"_vi" fields contain ONLY English text, never Vietnamese
+- Each lesson must be UNIQUE - use different vocabulary, grammar patterns, and questions for each topic
 - Make it fun and superhero-themed where possible
-- Each lesson must be UNIQUE and different from other lessons - use different vocabulary, grammar patterns, and questions for each topic
 - Respond with ONLY raw JSON, no markdown formatting`;
 }
 
 export async function generateLesson(req: LessonRequest): Promise<GeminiLesson> {
   console.log(`[Gemini] Generating lesson: topic="${req.topic}", level=${req.level}, index=${req.lessonIndex}`);
 
-  const text = await callGemini(buildPrompt(req));
-  const lesson = parseJsonResponse<GeminiLesson>(text);
-  console.log(`[Gemini] Lesson generated successfully: "${lesson.title_en}" with ${lesson.stage1.vocab.length} vocab items`);
-  return lesson;
+  try {
+    const text = await callGemini(buildPrompt(req));
+    const lesson = parseJsonResponse<GeminiLesson>(text);
+    console.log(`[Gemini] Lesson generated successfully: "${lesson.title_en}" with ${lesson.stage1.vocab.length} vocab items`);
+    return lesson;
+  } catch (err) {
+    console.error('[Gemini] Failed to generate lesson:', err);
+    throw err;
+  }
 }
 
 export async function generatePlacementQuestions(): Promise<{ questions: PlacementQuestion[] }> {
@@ -211,14 +282,19 @@ export async function generatePlacementQuestions(): Promise<{ questions: Placeme
   const prompt = `You are an English placement test creator for Vietnamese children learning English.
 Create 30 multiple-choice questions that range from very easy to moderately difficult to determine if the child is Beginner, Intermediate, or Advanced level.
 
+CRITICAL LANGUAGE RULES:
+- The "question_en" field MUST contain ONLY English text, never Vietnamese.
+- The "question_vi" field MUST contain ONLY Vietnamese text, never English.
+- The "options" MUST be in English only.
+
 Respond with ONLY raw JSON (no markdown, no code fences):
 {
   "questions": [
     {
       "id": "p1",
-      "question_en": "English question",
-      "question_vi": "Vietnamese translation of question",
-      "options": ["option1", "option2", "option3", "option4"],
+      "question_en": "English question (English only)",
+      "question_vi": "Vietnamese translation of the question (Vietnamese only)",
+      "options": ["English option 1", "English option 2", "English option 3", "English option 4"],
       "correct_index": 0
     },
     ... (30 questions total, p1 through p30)
@@ -230,11 +306,16 @@ Rules:
 - Questions 11-22: Medium (simple grammar, family, daily routines, food, present continuous) -> Intermediate level
 - Questions 23-30: Harder (past tense, comparatives, longer sentences, prepositions) -> Advanced level
 - Each question has exactly 4 options
-- All text in both English and Vietnamese
+- All options must be in English only
 - Respond with ONLY raw JSON`;
 
-  const text = await callGemini(prompt);
-  const result = parseJsonResponse<{ questions: PlacementQuestion[] }>(text);
-  console.log(`[Gemini] Placement questions generated: ${result.questions.length} questions`);
-  return result;
+  try {
+    const text = await callGemini(prompt);
+    const result = parseJsonResponse<{ questions: PlacementQuestion[] }>(text);
+    console.log(`[Gemini] Placement questions generated: ${result.questions.length} questions`);
+    return result;
+  } catch (err) {
+    console.error('[Gemini] Failed to generate placement questions:', err);
+    throw err;
+  }
 }

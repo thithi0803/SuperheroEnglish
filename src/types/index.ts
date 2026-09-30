@@ -57,6 +57,14 @@ export interface ListeningQuestion {
   correct_index: number;
 }
 
+export interface FillInBlankQuestion {
+  sentence: string;
+  translation_vi: string;
+  options: string[];
+  correct_index: number;
+  explanation_vi: string;
+}
+
 export interface BossChallenge {
   magic_phrase_en: string;
   magic_phrase_vi: string;
@@ -84,6 +92,7 @@ export interface GeminiLesson {
     multiple_choice: MultipleChoiceQuestion[];
     sentence_builder: SentenceBuilderQuestion;
     listening: ListeningQuestion;
+    fill_in_blank: FillInBlankQuestion;
   };
   stage3: {
     boss_challenge: BossChallenge;

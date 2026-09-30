@@ -1,18 +1,18 @@
 import { useState } from 'react';
 import type { GeminiLesson } from '@/types';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
-import { Check, X, ArrowRight, Volume2, Shuffle, ArrowLeft, Zap } from 'lucide-react';
+import { Check, X, ArrowRight, Volume2, Shuffle, ArrowLeft, Zap, PenLine } from 'lucide-react';
 
 interface Props {
   lesson: GeminiLesson;
   onComplete: (score: number) => void;
 }
 
-type ExerciseType = 'mc' | 'sentence' | 'listening';
+type ExerciseType = 'mc' | 'fill' | 'sentence' | 'listening';
 
 export function Stage2({ lesson, onComplete }: Props) {
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
-  const { multiple_choice, sentence_builder, listening } = lesson.stage2;
+  const { multiple_choice, sentence_builder, listening, fill_in_blank } = lesson.stage2;
 
   const [exerciseIndex, setExerciseIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -26,11 +26,23 @@ export function Stage2({ lesson, onComplete }: Props) {
   const [listeningAnswer, setListeningAnswer] = useState<number | null>(null);
   const [listeningSubmitted, setListeningSubmitted] = useState(false);
 
-  const exercises: ExerciseType[] = ['mc', 'mc', 'mc', 'sentence', 'listening'];
+  const [fillAnswer, setFillAnswer] = useState<number | null>(null);
+  const [fillSubmitted, setFillSubmitted] = useState(false);
+
+  const exercises: ExerciseType[] = ['mc', 'mc', 'mc', 'fill', 'sentence', 'listening'];
   const totalExercises = exercises.length;
   const currentType = exercises[exerciseIndex];
 
   const mcIndex = exerciseIndex <= 2 ? exerciseIndex : 0;
+
+  const handleFillAnswer = (index: number) => {
+    if (fillSubmitted) return;
+    setFillAnswer(index);
+    setFillSubmitted(true);
+    if (index === fill_in_blank.correct_index) {
+      setCorrectCount((c) => c + 1);
+    }
+  };
 
   const handleMCAnswer = (index: number) => {
     if (showResult) return;
@@ -44,6 +56,7 @@ export function Stage2({ lesson, onComplete }: Props) {
   const handleNext = () => {
     if (exerciseIndex === totalExercises - 1) {
       const totalCorrect = correctCount +
+        (fillAnswer === fill_in_blank.correct_index ? 1 : 0) +
         (sentenceCorrect ? 1 : 0) +
         (listeningAnswer === listening.correct_index ? 1 : 0);
       const score = Math.round((totalCorrect / totalExercises) * 100);
@@ -58,6 +71,8 @@ export function Stage2({ lesson, onComplete }: Props) {
     setSentenceCorrect(false);
     setListeningAnswer(null);
     setListeningSubmitted(false);
+    setFillAnswer(null);
+    setFillSubmitted(false);
   };
 
   const toggleWord = (wordIndex: number) => {
@@ -155,6 +170,69 @@ export function Stage2({ lesson, onComplete }: Props) {
           {showResult && (
             <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 mt-4">
               <p className="text-sm text-slate-300">{multiple_choice[mcIndex].explanation_vi}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fill in the Blank */}
+      {currentType === 'fill' && (
+        <div key="fill" className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
+          <span className="text-xs font-bold uppercase tracking-wider text-teal-400 mb-2 block">Điền Từ</span>
+          <p className="text-lg font-bold text-white mb-1">Chọn từ đúng điền vào chỗ trống</p>
+          <p className="text-sm text-slate-400 mb-5">{fill_in_blank.translation_vi}</p>
+
+          <div className="rounded-xl bg-slate-900/60 border border-teal-500/20 p-5 mb-5">
+            <p className="text-xl font-bold text-white leading-relaxed">
+              {fill_in_blank.sentence.split('___').map((part, i, arr) => (
+                <span key={i}>
+                  {part}
+                  {i < arr.length - 1 && (
+                    <span className={`inline-block min-w-[80px] mx-1 px-3 py-0.5 rounded-lg border-2 text-center font-bold ${
+                      fillSubmitted
+                        ? fillAnswer === fill_in_blank.correct_index
+                          ? 'border-green-500 bg-green-500/20 text-green-300'
+                          : 'border-red-500 bg-red-500/20 text-red-300'
+                        : 'border-teal-500/40 bg-teal-500/10 text-teal-400'
+                    }`}>
+                      {fillSubmitted ? fill_in_blank.options[fillAnswer ?? 0] : '___'}
+                    </span>
+                  )}
+                </span>
+              ))}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {fill_in_blank.options.map((option, index) => {
+              const isSelected = fillAnswer === index;
+              const isCorrect = fill_in_blank.correct_index === index;
+              const showCorrect = fillSubmitted && isCorrect;
+              const showWrong = fillSubmitted && isSelected && !isCorrect;
+
+              return (
+                <button
+                  key={index}
+                  onClick={() => handleFillAnswer(index)}
+                  disabled={fillSubmitted}
+                  className={`px-5 py-4 rounded-xl border-2 font-bold text-sm transition-all flex items-center justify-center gap-2 ${
+                    showCorrect ? 'border-green-500 bg-green-500/20 text-green-300'
+                    : showWrong ? 'border-red-500 bg-red-500/20 text-red-300'
+                    : 'border-white/10 bg-slate-900/60 text-slate-200 hover:border-teal-500/40'
+                  }`}
+                >
+                  <PenLine className="w-3.5 h-3.5 opacity-50" />
+                  {option}
+                  {showCorrect && <Check className="w-4 h-4" />}
+                  {showWrong && <X className="w-4 h-4" />}
+                </button>
+              );
+            })}
+          </div>
+
+          {fillSubmitted && (
+            <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 mt-4">
+              <p className="text-sm text-slate-300">{fill_in_blank.explanation_vi}</p>
             </div>
           )}
         </div>
@@ -301,10 +379,12 @@ export function Stage2({ lesson, onComplete }: Props) {
       <div className="flex justify-between items-center mt-6">
         <div className="text-sm text-slate-500 font-semibold">
           {currentType === 'mc' && !showResult && 'Chọn đáp án để tiếp tục'}
+          {currentType === 'fill' && !fillSubmitted && 'Chọn từ để điền vào chỗ trống'}
           {currentType === 'sentence' && !sentenceSubmitted && 'Ghép câu để tiếp tục'}
           {currentType === 'listening' && !listeningSubmitted && 'Chọn hình để tiếp tục'}
         </div>
         {((currentType === 'mc' && showResult) ||
+          (currentType === 'fill' && fillSubmitted) ||
           (currentType === 'sentence' && sentenceSubmitted) ||
           (currentType === 'listening' && listeningSubmitted)) && (
           <button
