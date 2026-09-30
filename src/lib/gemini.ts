@@ -1,9 +1,8 @@
 import type { GeminiLesson, Level, PlacementQuestion } from '@/types';
 
 const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_MODEL = 'gemini-3.6-flash';
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-const API_TIMEOUT_MS = 30000;
+const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-flash-lite-latest'];
+const API_TIMEOUT_MS = 45000;
 
 interface LessonRequest {
   topic: string;
@@ -65,7 +64,55 @@ function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number):
   });
 }
 
-async function callGemini(prompt: string, maxRetries = 2): Promise<string> {
+function buildUrl(model: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+}
+
+async function tryModel(model: string, prompt: string, timeoutMs: number): Promise<string> {
+  const response = await fetchWithTimeout(
+    buildUrl(model),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 8192,
+          responseMimeType: 'application/json',
+        },
+      }),
+    },
+    timeoutMs,
+  );
+
+  if (response.status === 503) {
+    throw new Error('MODEL_UNAVAILABLE');
+  }
+  if (response.status === 429) {
+    throw new Error('MODEL_RATE_LIMITED');
+  }
+  if (response.status === 404) {
+    throw new Error('MODEL_NOT_FOUND');
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`[Gemini] API error ${response.status} (${model}): ${errorText}`);
+    throw new GeminiError('AI gặp lỗi kỹ thuật. Vui lòng thử lại.');
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!text) {
+    throw new GeminiError('AI không trả về nội dung. Vui lòng thử lại.');
+  }
+
+  return text;
+}
+
+async function callGemini(prompt: string, maxRetries = 1): Promise<string> {
   if (!GEMINI_API_KEY) {
     throw new GeminiError('Chưa cấu hình khóa API Gemini. Vui lòng liên hệ quản trị viên.');
   }
@@ -73,66 +120,35 @@ async function callGemini(prompt: string, maxRetries = 2): Promise<string> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetchWithTimeout(
-        GEMINI_URL,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.8,
-              maxOutputTokens: 8192,
-              responseMimeType: 'application/json',
-            },
-          }),
-        },
-        API_TIMEOUT_MS,
-      );
+    for (const model of GEMINI_MODELS) {
+      try {
+        console.log(`[Gemini] Trying model: ${model} (attempt ${attempt + 1})`);
+        const text = await tryModel(model, prompt, API_TIMEOUT_MS);
+        console.log(`[Gemini] Success with model: ${model}`);
+        return text;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[Gemini] Model ${model} failed: ${msg}`);
 
-      if (response.status === 503 && attempt < maxRetries) {
-        console.warn(`[Gemini] 503 Service Unavailable, retrying (${attempt + 1}/${maxRetries})...`);
-        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        if (msg === 'MODEL_UNAVAILABLE' || msg === 'MODEL_RATE_LIMITED' || msg === 'MODEL_NOT_FOUND') {
+          continue;
+        }
+        lastError = err instanceof Error ? err : new Error(msg);
+        if (err instanceof GeminiError) {
+          throw err;
+        }
         continue;
       }
+    }
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[Gemini] API error ${response.status}: ${errorText}`);
-        if (response.status === 429) {
-          throw new GeminiError('AI đang quá tải. Vui lòng đợi một chút rồi thử lại.');
-        }
-        if (response.status === 400 || response.status === 404) {
-          throw new GeminiError('Model AI không khả dụng. Vui lòng thử lại sau.');
-        }
-        throw new GeminiError('AI gặp lỗi kỹ thuật. Vui lòng thử lại.');
-      }
-
-      const data = await response.json();
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (!text) {
-        throw new GeminiError('AI không trả về nội dung. Vui lòng thử lại.');
-      }
-
-      return text;
-    } catch (err) {
-      if (err instanceof GeminiError && (err.message.includes('quá chậm') || err.message.includes('quá tải') || err.message.includes('không khả dụng'))) {
-        throw err;
-      }
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt < maxRetries) {
-        console.warn(`[Gemini] Attempt ${attempt + 1} failed, retrying...`, lastError.message);
-        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
-        continue;
-      }
-      if (err instanceof GeminiError) throw err;
-      throw new GeminiError('Không thể kết nối tới AI. Vui lòng kiểm tra mạng và thử lại.');
+    if (attempt < maxRetries) {
+      console.warn(`[Gemini] All models failed, retrying (${attempt + 1}/${maxRetries})...`);
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
     }
   }
 
-  throw lastError || new GeminiError('Lỗi không xác định từ AI. Vui lòng thử lại.');
+  if (lastError instanceof GeminiError) throw lastError;
+  throw new GeminiError('Không thể kết nối tới AI. Vui lòng kiểm tra mạng và thử lại.');
 }
 
 export function getTopicList(): { topic: string; emoji: string }[] {
