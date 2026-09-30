@@ -31,7 +31,7 @@ function AppContent() {
     return <AuthScreen />;
   }
 
-  if (showPlacement || (profile && !profile.placement_level)) {
+  if (showPlacement || (profile && !profile.placement_level) || (session && !profile)) {
     return (
       <PlacementTest
         onComplete={async (level: Level) => {

@@ -23,18 +23,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const loadProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
 
-    if (error) {
-      console.error('Error loading profile:', error);
-      return;
-    }
-    if (data) {
-      setProfile(data as UserProfile);
+      if (error) {
+        console.error('Error loading profile:', error);
+        return;
+      }
+      if (data) {
+        setProfile(data as UserProfile);
+        return;
+      }
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 500));
+      }
     }
   }, []);
 
@@ -78,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (profileError) {
         return { error: profileError.message };
       }
+      await loadProfile(data.user.id);
     }
     return { error: null };
   }, []);
