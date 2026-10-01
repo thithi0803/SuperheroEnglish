@@ -74,12 +74,14 @@ CRITICAL LANGUAGE AND CONTENT RULES:
 - The "translation" or "_vi" fields are SEPARATE translations, not mixed-language text.
 - Fill-in-the-blank sentences MUST use three underscores "___" at the missing word position.
 - Every exercise must be factually sensible for a child and consistent with ordinary real life.
-- Do not state that an ordinary animal, object, food, or person has an unusual property as a fact. For example, NEVER make "blue" the correct answer to "What color is the dog?" or say that a normal dog is blue.
-- For common animals and objects, use typical recognizable properties: a dog is commonly shown as brown, black, white, or spotted; grass is green; the sky is blue; bananas are usually yellow. Do not treat these examples as absolute rules when the sentence explicitly says "a blue toy dog" or describes a fictional character.
+- Do not make a color claim about an ordinary animal as if all animals of that kind have one fixed color. A real dog or bird can have many different colors.
+- A color question about an animal is allowed ONLY when the question includes a specific visual cue, such as an image emoji or an explicitly described drawing/toy. The answer must match that visible cue. For example: "Look at the blue bird 🐦. What color is it?" with "blue" as the correct answer. Never ask "What color is the bird?" and invent a color without a visual cue.
+- For a bird color question, use the exact blue bird emoji 🐦 as the visual cue and use "blue" as the correct answer. Do not use the red bird emoji 🐦 or another color for that same pictured emoji.
+- If the visual emoji does not show one clear color, do not create a color question; choose another question type.
 - If you use superheroes, monsters, magic, or imaginary characters, clearly identify them as fictional or name the imaginary character. Do not present fantasy details as facts about ordinary real-world objects.
-- Before returning JSON, fact-check every question, correct answer, example, image label, and Vietnamese explanation against basic everyday knowledge. Each question must have one unambiguous answer.
+- Before returning JSON, fact-check every question, correct answer, example, image label, and Vietnamese explanation against the actual visual cue. Each question must have one unambiguous answer.
 - Never write an explanation that merely repeats an impossible premise; replace the question with a realistic one instead.
-- Explanations must teach the real answer naturally. Never write "In this lesson, the dog is blue" to justify an ordinary real-world fact.
+- Explanations must teach the visual cue naturally, for example "Con chim trong hình có màu xanh dương." Never write "Trong bài học này, con chim có màu đỏ" when the image shows blue.
 
 Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, no markdown, no code fences):
 
@@ -162,7 +164,8 @@ IMPORTANT RULES:
 - Generate exactly 3 vocabulary items in stage1.vocab
 - Generate exactly 3 multiple choice questions in stage2.multiple_choice
 - CRITICAL for multiple_choice: The question MUST NOT reveal the answer. NEVER replace an English noun, character name, or vocabulary word with an emoji alone. Always include the complete English word and optionally place an emoji beside it: "What color is the dog 🐶?" or "What does the superhero 🦸‍♂️ say to a friend?". Do not use "What color is 🐶?" or "What does 🦸‍♂️ say?".
-- For real-world knowledge questions, the correct answer must describe the ordinary real-world subject, not an unusual fantasy version. Do not use a blue dog, purple sun, square ball, or similar impossible premise unless the sentence explicitly describes a toy, drawing, costume, or fictional character.
+- For visual color questions, include the pictured emoji in question_en and make the wording refer to the picture, such as "Look at this bird 🐦. What color is it?" The correct option must match the emoji shown. For the blue bird emoji 🐦, the only correct answer is "blue". Do not use a different color just because it is a valid color for that animal in real life.
+- Do not ask a generic animal color question without a pictured emoji or explicit description. A real bird can be blue, red, green, white, black, or many other colors; the lesson must not pretend otherwise.
 - The fill_in_blank.sentence MUST contain "___" (three underscores) at the missing word position
 - The fill_in_blank.options must have exactly 4 English word choices
 - The sentence_builder.scrambled_words must contain exactly the same words as correct_sentence, only shuffled
@@ -180,22 +183,18 @@ IMPORTANT RULES:
 }
 
 function hasBasicContentError(lesson: GeminiLesson): boolean {
-  const realWorldColorRules: Array<{ subject: RegExp; allowed: string[] }> = [
-    { subject: /what color is (the )?dog\b/i, allowed: ['brown', 'black', 'white', 'spotted'] },
-    { subject: /what color is (the )?grass\b/i, allowed: ['green'] },
-    { subject: /what color is (the )?sky\b/i, allowed: ['blue'] },
-    { subject: /what color is (the )?banana\b/i, allowed: ['yellow'] },
-  ];
-
   return lesson.stage2.multiple_choice.some((question) => {
     const questionText = question.question_en.trim();
     const correctAnswer = question.options[question.correct_index]?.trim().toLowerCase();
-    const isExplicitlyImaginary = /toy|drawing|cartoon|fictional|imaginary|magic/i.test(questionText);
-    if (isExplicitlyImaginary) return false;
+    const asksColor = /what color|which color|màu gì/i.test(questionText);
+    const hasVisualCue = /🐦|🦜|🐶|🐕|🐱|🐈|🐰|🐭|🐮|🐷|🐸|🦁|🐯|🐻|🐼|🐨|🐵|🦊|🐺|🐴|🦄|🐔|🦆|🦉|🦋|🐝|🐠|🐟|🦈/.test(questionText)
+      || /drawing|picture|image|toy|cartoon/i.test(questionText);
 
-    return realWorldColorRules.some(({ subject, allowed }) => (
-      subject.test(questionText) && !allowed.includes(correctAnswer)
-    ));
+    if (asksColor && !hasVisualCue) return true;
+    if (/\b(bird|the bird)\b/i.test(questionText) && /🐦/.test(questionText) && correctAnswer !== 'blue') return true;
+    if (/\b(dog|the dog)\b/i.test(questionText) && /🐶|🐕/.test(questionText) && correctAnswer === 'blue') return true;
+
+    return false;
   });
 }
 
