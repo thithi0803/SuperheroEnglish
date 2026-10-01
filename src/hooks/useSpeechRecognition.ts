@@ -6,6 +6,7 @@ interface SpeechRecognitionHook {
   transcript: string;
   finalTranscript: string;
   error: string | null;
+  needsPermission: boolean;
   startListening: () => void;
   stopListening: () => void;
   reset: () => void;
@@ -21,6 +22,7 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   const [transcript, setTranscript] = useState('');
   const [finalTranscript, setFinalTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [needsPermission, setNeedsPermission] = useState(false);
   const recognitionRef = useRef<any>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -72,18 +74,16 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       return;
     }
 
-    // Hủy timer restart đang chờ nếu có
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
 
-    // Dọn phiên cũ
     destroyRecognition();
     reset();
     setListening(false);
+    setNeedsPermission(false);
 
-    // Giải phóng kênh loa — chỉ cancel khi đang phát để tránh xung đột âm thanh
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
         if (window.speechSynthesis.speaking) {
@@ -118,10 +118,12 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
 
       recognition.onerror = (event: any) => {
         const err = event?.error || 'Speech recognition error';
-        if (err !== 'aborted' && err !== 'no-speech') {
+        if (err === 'not-allowed' || err === 'service-not-allowed') {
+          setNeedsPermission(true);
+          setError(null);
+        } else if (err !== 'aborted' && err !== 'no-speech') {
           setError(err);
         }
-        // 'no-speech' không hiển thị lỗi nhưng vẫn cần reset trạng thái
         setListening(false);
       };
 
@@ -136,7 +138,6 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
         recognition.start();
       } catch (startErr: any) {
         setListening(false);
-        // InvalidStateError: recognition đang chạy, thử lại sau một chút
         if (startErr?.name === 'InvalidStateError') {
           recognitionRef.current = null;
           restartTimerRef.current = setTimeout(() => {
@@ -148,11 +149,28 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       }
     };
 
-    // Trên điện thoại, cần một khoảng trễ nhỏ sau khi abort phiên cũ
-    // để trình duyệt giải phóng micro trước khi mở phiên mới
+    // Yêu cầu cấp phép micro qua getUserMedia trước khi mở SpeechRecognition.
+    // Điều này kích hoạt popup xin quyền micro trên điện thoại.
+    // Sau khi được cấp, dừng stream ngay để không chiếm micro.
+    const requestPermission = async () => {
+      if (navigator.mediaDevices?.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          stream.getTracks().forEach((t) => t.stop());
+          setNeedsPermission(false);
+        } catch (micErr: any) {
+          if (micErr?.name === 'NotAllowedError' || micErr?.name === 'PermissionDeniedError') {
+            setNeedsPermission(true);
+            return;
+          }
+        }
+      }
+      createAndStart();
+    };
+
     restartTimerRef.current = setTimeout(() => {
       restartTimerRef.current = null;
-      createAndStart();
+      requestPermission();
     }, 300);
   }, [destroyRecognition, reset]);
 
@@ -162,6 +180,7 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     transcript,
     finalTranscript,
     error,
+    needsPermission,
     startListening,
     stopListening,
     reset,

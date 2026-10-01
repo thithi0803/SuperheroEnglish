@@ -10,7 +10,7 @@ interface Props {
 }
 
 export function Stage3({ lesson, onComplete }: Props) {
-  const { supported: srSupported, listening, transcript, finalTranscript, startListening, stopListening, reset } = useSpeechRecognition();
+  const { supported: srSupported, listening, transcript, finalTranscript, needsPermission, startListening, stopListening, reset } = useSpeechRecognition();
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const [bossHp, setBossHp] = useState(100);
   const [attempts, setAttempts] = useState(0);
@@ -275,6 +275,14 @@ export function Stage3({ lesson, onComplete }: Props) {
             >
               Xác Nhận Đã Đọc
             </button>
+          </div>
+        )}
+
+        {needsPermission && !listening && (
+          <div className="rounded-xl bg-blue-500/10 border border-blue-500/30 px-4 py-3 max-w-md text-center animate-fade-in">
+            <p className="text-sm text-blue-400">
+              Vui lòng cho phép truy cập micro trong trình duyệt để ghi âm. Bấm lại nút mic sau khi cấp quyền.
+            </p>
           </div>
         )}
 
