@@ -60,7 +60,7 @@ function AppContent() {
       console.error('Failed to save completion:', err);
     }
     setActiveLesson(null);
-    setView('progress');
+    setView('lessons');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
