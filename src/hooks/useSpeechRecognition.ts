@@ -25,7 +25,6 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   const [needsPermission, setNeedsPermission] = useState(false);
   const recognitionRef = useRef<any>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const permissionGrantedRef = useRef(false);
 
   const supported = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
@@ -68,13 +67,36 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     setError(null);
   }, []);
 
-  const createAndStart = useCallback(() => {
+  const startListening = useCallback(() => {
     const RecognitionClass = getRecognitionClass();
     if (!RecognitionClass) {
       setError('Trình duyệt không hỗ trợ nhận diện giọng nói');
       return;
     }
 
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
+    // Dọn phiên cũ
+    destroyRecognition();
+    reset();
+    setListening(false);
+    setNeedsPermission(false);
+
+    // Giải phóng kênh loa
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      try {
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.cancel();
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Tạo recognition mới và gán handlers
     const recognition = new RecognitionClass();
     recognition.lang = 'en-US';
     recognition.continuous = false;
@@ -114,84 +136,32 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     recognitionRef.current = recognition;
     setListening(true);
 
+    // Gọi .start() ĐỒNG BỘ ngay trong cú click của người dùng.
+    // Trên điện thoại, chính .start() là lệnh kích hoạt popup xin quyền micro.
+    // Nếu bọc trong setTimeout/asynce, trình duyệt sẽ mất ngữ cảnh user-gesture
+    // và không hiện popup, chỉ báo lỗi "not-allowed" thầm lặng.
     try {
       recognition.start();
     } catch (startErr: any) {
       setListening(false);
       if (startErr?.name === 'InvalidStateError') {
+        // Recognition cũ chưa kịp dừng — thử lại sau một chút
         recognitionRef.current = null;
         restartTimerRef.current = setTimeout(() => {
-          createAndStart();
+          restartTimerRef.current = null;
+          try {
+            recognition.start();
+            recognitionRef.current = recognition;
+            setListening(true);
+          } catch {
+            setError('Không thể bắt đầu nghe. Vui lòng thử lại.');
+          }
         }, 350);
       } else {
         setError('Không thể bắt đầu nghe. Vui lòng thử lại.');
       }
     }
-  }, []);
-
-  const startListening = useCallback(() => {
-    const RecognitionClass = getRecognitionClass();
-    if (!RecognitionClass) {
-      setError('Trình duyệt không hỗ trợ nhận diện giọng nói');
-      return;
-    }
-
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-
-    destroyRecognition();
-    reset();
-    setListening(false);
-    setNeedsPermission(false);
-
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        if (window.speechSynthesis.speaking) {
-          window.speechSynthesis.cancel();
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    // Nếu đã được cấp phép trước đó, mở recognition trực tiếp không cần xin lại
-    if (permissionGrantedRef.current) {
-      restartTimerRef.current = setTimeout(() => {
-        restartTimerRef.current = null;
-        createAndStart();
-      }, 300);
-      return;
-    }
-
-    // Gọi getUserMedia NGAY TRONG CÚ CLICK để trình duyệt điện thoại
-    // nhận diện đây là hành động của người dùng và hiện popup cấp phép micro.
-    // Không được bọc trong setTimeout vì sẽ mất user-activation context.
-    const requestPermission = async () => {
-      if (navigator.mediaDevices?.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          // Dừng stream ngay để không chiếm micro — SpeechRecognition sẽ tự mở lại
-          stream.getTracks().forEach((t) => t.stop());
-          permissionGrantedRef.current = true;
-          setNeedsPermission(false);
-        } catch (micErr: any) {
-          if (micErr?.name === 'NotAllowedError' || micErr?.name === 'PermissionDeniedError') {
-            setNeedsPermission(true);
-            return;
-          }
-        }
-      }
-      // Mở recognition sau khi đã có quyền — độ trễ nhỏ để micro được giải phóng
-      restartTimerRef.current = setTimeout(() => {
-        restartTimerRef.current = null;
-        createAndStart();
-      }, 300);
-    };
-
-    requestPermission();
-  }, [destroyRecognition, reset, createAndStart]);
+  }, [destroyRecognition, reset]);
 
   return {
     supported,
