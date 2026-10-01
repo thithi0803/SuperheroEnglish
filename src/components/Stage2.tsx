@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react';
 import type { GeminiLesson } from '@/types';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
 import { Check, X, ArrowRight, Volume2, Shuffle, ArrowLeft, Zap, PenLine } from 'lucide-react';
+import { sanitizeQuestionText } from '@/lib/questionText';
 
 interface Props {
   lesson: GeminiLesson;
@@ -10,12 +11,24 @@ interface Props {
 
 type ExerciseType = 'mc' | 'fill' | 'sentence' | 'listening';
 
+function normalizeSentence(sentence: string): string {
+  return sentence.replace(
+    /\b(is|are|was|were)\s+(big|small|large|little|long|short|beautiful|cute|old|young)\s+(red|blue|green|yellow|black|white|brown|orange|pink|purple)\b/gi,
+    '$1 $2 and $3',
+  );
+}
+
 export function Stage2({ lesson, onComplete }: Props) {
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const { multiple_choice, sentence_builder, listening, fill_in_blank } = lesson.stage2;
 
+  const correctSentence = useMemo(
+    () => normalizeSentence(sentence_builder.correct_sentence),
+    [sentence_builder.correct_sentence],
+  );
+
   const scrambledWords = useMemo(() => {
-    const words = sentence_builder.correct_sentence.split(/\s+/).filter(Boolean);
+    const words = correctSentence.split(/\s+/).filter(Boolean);
     const shuffled = [...words];
     let seed = sentence_builder.correct_sentence.length + 1;
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -23,11 +36,11 @@ export function Stage2({ lesson, onComplete }: Props) {
       const j = Math.floor((seed / 233280) * (i + 1));
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
-    if (shuffled.join(' ').toLowerCase() === sentence_builder.correct_sentence.toLowerCase().trim() && shuffled.length > 1) {
+    if (shuffled.join(' ').toLowerCase() === correctSentence.toLowerCase().trim() && shuffled.length > 1) {
       [shuffled[0], shuffled[1]] = [shuffled[1], shuffled[0]];
     }
     return shuffled;
-  }, [sentence_builder.correct_sentence]);
+  }, [correctSentence]);
 
   const [exerciseIndex, setExerciseIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -101,7 +114,7 @@ export function Stage2({ lesson, onComplete }: Props) {
 
   const submitSentence = () => {
     const constructed = sentenceOrder.map((i) => scrambledWords[i]).join(' ');
-    const correct = constructed.toLowerCase().trim() === sentence_builder.correct_sentence.toLowerCase().trim();
+    const correct = constructed.toLowerCase().trim() === correctSentence.toLowerCase().trim();
     setSentenceCorrect(correct);
     setSentenceSubmitted(true);
     if (correct) setCorrectCount((c) => c + 1);
@@ -153,7 +166,7 @@ export function Stage2({ lesson, onComplete }: Props) {
       {currentType === 'mc' && multiple_choice[mcIndex] && (
         <div key={`mc-${exerciseIndex}`} className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
           <span className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-2 block">Trắc Nghiệm</span>
-          <p className="text-lg font-bold text-white mb-5">{multiple_choice[mcIndex].question_en}</p>
+          <p className="text-lg font-bold text-white mb-5">{sanitizeQuestionText(multiple_choice[mcIndex].question_en, multiple_choice[mcIndex].options, multiple_choice[mcIndex].correct_index)}</p>
 
           <div className="space-y-3">
             {multiple_choice[mcIndex].options.map((option, index) => {
@@ -303,12 +316,12 @@ export function Stage2({ lesson, onComplete }: Props) {
             }`}>
               {sentenceCorrect ? (
                 <p className="text-sm text-green-400 flex items-center gap-2">
-                  <Check className="w-4 h-4" /> Chính xác! "{sentence_builder.correct_sentence}"
+                  <Check className="w-4 h-4" /> Chính xác! "{correctSentence}"
                 </p>
               ) : (
                 <div>
                   <p className="text-sm text-red-400 flex items-center gap-2 mb-1">
-                    <X className="w-4 h-4" /> Chưa đúng. Đáp án: "{sentence_builder.correct_sentence}"
+                    <X className="w-4 h-4" /> Chưa đúng. Đáp án: "{correctSentence}"
                   </p>
                 </div>
               )}

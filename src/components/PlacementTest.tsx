@@ -3,6 +3,7 @@ import { useAuth } from '@/context/AuthContext';
 import { generatePlacementQuestions } from '@/lib/gemini';
 import type { PlacementQuestion, Level } from '@/types';
 import { Shield, Check, X, ArrowRight, Sparkles, Trophy } from 'lucide-react';
+import { sanitizeQuestionText } from '@/lib/questionText';
 
 interface Props {
   onComplete: (level: Level) => void;
@@ -158,7 +159,7 @@ export function PlacementTest({ onComplete }: Props) {
         </div>
 
         <div key={current} className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
-          <p className="text-xl font-bold text-white mb-6">{question.question_en}</p>
+          <p className="text-xl font-bold text-white mb-6">{sanitizeQuestionText(question.question_en, question.options, question.correct_index)}</p>
 
           <div className="space-y-3">
             {question.options.map((option, index) => {

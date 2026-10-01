@@ -1,9 +1,5 @@
 import type { GeminiLesson, Level, PlacementQuestion } from '@/types';
-
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-const GEMINI_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.6-flash', 'gemini-flash-lite-latest'];
-const API_TIMEOUT_MS = 45000;
-
+import { supabase } from '@/lib/supabase';
 interface LessonRequest {
   topic: string;
   level: Level;
@@ -17,16 +13,8 @@ class GeminiError extends Error {
   }
 }
 
-function cleanResponse(text: string): string {
-  let cleaned = text.trim();
-  cleaned = cleaned.replace(/^```json\s*/i, '');
-  cleaned = cleaned.replace(/^```\s*/i, '');
-  cleaned = cleaned.replace(/\s*```$/i, '');
-  return cleaned.trim();
-}
-
 function parseJsonResponse<T>(text: string): T {
-  const cleaned = cleanResponse(text);
+  const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
   try {
     return JSON.parse(cleaned) as T;
   } catch {
@@ -40,115 +28,16 @@ function parseJsonResponse<T>(text: string): T {
   }
 }
 
-function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number): Promise<Response> {
-  return new Promise((resolve, reject) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      controller.abort();
-      reject(new GeminiError('AI phản hồi quá chậm. Vui lòng thử lại.'));
-    }, timeoutMs);
-
-    fetch(url, { ...options, signal: controller.signal })
-      .then((res) => {
-        clearTimeout(timer);
-        resolve(res);
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        if (err.name === 'AbortError') {
-          reject(new GeminiError('AI phản hồi quá chậm. Vui lòng thử lại.'));
-        } else {
-          reject(err);
-        }
-      });
+async function callGemini(prompt: string): Promise<string> {
+  const { data, error } = await supabase.functions.invoke<{ text?: string; error?: string }>('generate-lesson', {
+    body: { prompt },
   });
-}
 
-function buildUrl(model: string): string {
-  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-}
-
-async function tryModel(model: string, prompt: string, timeoutMs: number): Promise<string> {
-  const response = await fetchWithTimeout(
-    buildUrl(model),
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.8,
-          maxOutputTokens: 8192,
-          responseMimeType: 'application/json',
-        },
-      }),
-    },
-    timeoutMs,
-  );
-
-  if (response.status === 503) {
-    throw new Error('MODEL_UNAVAILABLE');
-  }
-  if (response.status === 429) {
-    throw new Error('MODEL_RATE_LIMITED');
-  }
-  if (response.status === 404) {
-    throw new Error('MODEL_NOT_FOUND');
+  if (error || !data?.text) {
+    throw new GeminiError(data?.error || 'Không thể kết nối tới AI. Vui lòng thử lại.');
   }
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`[Gemini] API error ${response.status} (${model}): ${errorText}`);
-    throw new GeminiError('AI gặp lỗi kỹ thuật. Vui lòng thử lại.');
-  }
-
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    throw new GeminiError('AI không trả về nội dung. Vui lòng thử lại.');
-  }
-
-  return text;
-}
-
-async function callGemini(prompt: string, maxRetries = 1): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    throw new GeminiError('Chưa cấu hình khóa API Gemini. Vui lòng liên hệ quản trị viên.');
-  }
-
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    for (const model of GEMINI_MODELS) {
-      try {
-        console.log(`[Gemini] Trying model: ${model} (attempt ${attempt + 1})`);
-        const text = await tryModel(model, prompt, API_TIMEOUT_MS);
-        console.log(`[Gemini] Success with model: ${model}`);
-        return text;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[Gemini] Model ${model} failed: ${msg}`);
-
-        if (msg === 'MODEL_UNAVAILABLE' || msg === 'MODEL_RATE_LIMITED' || msg === 'MODEL_NOT_FOUND') {
-          continue;
-        }
-        lastError = err instanceof Error ? err : new Error(msg);
-        if (err instanceof GeminiError) {
-          throw err;
-        }
-        continue;
-      }
-    }
-
-    if (attempt < maxRetries) {
-      console.warn(`[Gemini] All models failed, retrying (${attempt + 1}/${maxRetries})...`);
-      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-    }
-  }
-
-  if (lastError instanceof GeminiError) throw lastError;
-  throw new GeminiError('Không thể kết nối tới AI. Vui lòng kiểm tra mạng và thử lại.');
+  return data.text;
 }
 
 export function getTopicList(): { topic: string; emoji: string }[] {
@@ -214,7 +103,7 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
   "stage2": {
     "multiple_choice": [
       {
-        "question_en": "English question using an emoji to represent the subject (e.g. 'What color is 🐶?' NOT 'What color is the red dog?')",
+        "question_en": "English question with the complete noun and an optional emoji beside it (e.g. 'What color is the dog 🐶?' NOT a question that uses only an emoji)",
         "question_vi": "Vietnamese translation of the question (Vietnamese only)",
         "options": ["English option 1", "English option 2", "English option 3", "English option 4"],
         "correct_index": 0,
@@ -265,10 +154,11 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
 IMPORTANT RULES:
 - Generate exactly 3 vocabulary items in stage1.vocab
 - Generate exactly 3 multiple choice questions in stage2.multiple_choice
-- CRITICAL for multiple_choice: The question MUST NOT reveal the answer. Use an emoji to represent the subject instead of describing it with words that give away the answer. For example: ask "What color is 🐶?" NOT "What color is the red dog?". Ask "What sound does 🐱 make?" NOT "What sound does the meowing cat make?"
+- CRITICAL for multiple_choice: The question MUST NOT reveal the answer. NEVER replace an English noun, character name, or vocabulary word with an emoji alone. Always include the complete English word and optionally place an emoji beside it: "What color is the dog 🐶?" or "What does the superhero 🦸‍♂️ say to a friend?". Do not use "What color is 🐶?" or "What does 🦸‍♂️ say?".
 - The fill_in_blank.sentence MUST contain "___" (three underscores) at the missing word position
 - The fill_in_blank.options must have exactly 4 English word choices
-- The sentence_builder.scrambled_words should have 5-6 English words to arrange
+- The sentence_builder.scrambled_words must contain exactly the same words as correct_sentence, only shuffled
+- The sentence_builder.correct_sentence MUST be a complete, natural, grammatically correct English sentence. Check word order, adjective order, articles, subject-verb agreement, and punctuation before returning it. Never create fragments such as "The cat is big red"; use natural grammar such as "The cat is big and red" or "The big red cat".
 - The listening.audio_text should be a simple English sentence related to the topic
 - The listening image_options should have 4 choices with emojis
 - The magic_phrase should use the grammar pattern from stage1
@@ -325,6 +215,9 @@ Rules:
 - Questions 23-30: Harder (past tense, comparatives, longer sentences, prepositions) -> Advanced level
 - Each question has exactly 4 options
 - All options must be in English only
+- Every English sentence and answer option must be 100% grammatically correct and natural to a native English speaker.
+- Never use an emoji as a replacement for an English word.
+- Before returning JSON, proofread every English sentence and correct any unnatural or mechanically assembled wording.
 - Respond with ONLY raw JSON`;
 
   try {
