@@ -11,7 +11,7 @@ interface Props {
 
 export function Stage1({ lesson, onComplete }: Props) {
   const { speak, speaking, supported: ttsSupported } = useSpeechSynthesis();
-  const { supported: srSupported, listening, transcript, finalTranscript, startListening, stopListening, reset } = useSpeechRecognition();
+  const { supported: srSupported, listening, transcript, finalTranscript, error: srError, startListening, stopListening, reset } = useSpeechRecognition();
   const [practiceTarget, setPracticeTarget] = useState<string | null>(null);
   const [practiceMatched, setPracticeMatched] = useState(false);
 
@@ -97,6 +97,7 @@ export function Stage1({ lesson, onComplete }: Props) {
               {srSupported && (
                 <button
                   onClick={() => handlePractice(item.word)}
+                  disabled={listening && practiceTarget !== item.word}
                   className={`mt-3 w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
                     listening && practiceTarget === item.word
                       ? 'bg-red-500/20 text-red-400 border border-red-500/40 animate-pulse'
@@ -120,6 +121,12 @@ export function Stage1({ lesson, onComplete }: Props) {
                   ) : (
                     <span>Bé nói: "{transcript}"</span>
                   )}
+                </div>
+              )}
+
+              {practiceTarget === item.word && srError && !listening && (
+                <div className="mt-2 text-xs px-2 py-1.5 rounded-lg bg-red-500/10 text-red-400">
+                  Lỗi micro: {srError}. Bấm lại để thử.
                 </div>
               )}
             </div>

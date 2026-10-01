@@ -22,6 +22,7 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   const [finalTranscript, setFinalTranscript] = useState('');
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const supported = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
@@ -41,6 +42,10 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   }, []);
 
   const stopListening = useCallback(() => {
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     const rec = recognitionRef.current;
     if (!rec) {
       setListening(false);
@@ -67,63 +72,88 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       return;
     }
 
-    // Dọn phiên cũ trước khi mở phiên mới
+    // Hủy timer restart đang chờ nếu có
+    if (restartTimerRef.current) {
+      clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
+    // Dọn phiên cũ
     destroyRecognition();
     reset();
     setListening(false);
 
-    // Giải phóng kênh loa trên điện thoại trước khi mở micro
+    // Giải phóng kênh loa — chỉ cancel khi đang phát để tránh xung đột âm thanh
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        window.speechSynthesis.cancel();
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.cancel();
+        }
       } catch {
         // ignore
       }
     }
 
-    const recognition = new RecognitionClass();
-    recognition.lang = 'en-US';
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    const createAndStart = () => {
+      const recognition = new RecognitionClass();
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
 
-    recognition.onresult = (event: any) => {
-      let final = '';
-      for (let i = 0; i < event.results.length; i++) {
-        const result = event.results[i];
-        if (result.isFinal) {
-          final += result[0].transcript;
+      recognition.onresult = (event: any) => {
+        let final = '';
+        for (let i = 0; i < event.results.length; i++) {
+          const result = event.results[i];
+          if (result.isFinal) {
+            final += result[0].transcript;
+          }
+        }
+        const text = final.trim();
+        if (text) {
+          setTranscript(text);
+          setFinalTranscript(text);
+        }
+      };
+
+      recognition.onerror = (event: any) => {
+        const err = event?.error || 'Speech recognition error';
+        if (err !== 'aborted' && err !== 'no-speech') {
+          setError(err);
+        }
+        // 'no-speech' không hiển thị lỗi nhưng vẫn cần reset trạng thái
+        setListening(false);
+      };
+
+      recognition.onend = () => {
+        setListening(false);
+      };
+
+      recognitionRef.current = recognition;
+      setListening(true);
+
+      try {
+        recognition.start();
+      } catch (startErr: any) {
+        setListening(false);
+        // InvalidStateError: recognition đang chạy, thử lại sau một chút
+        if (startErr?.name === 'InvalidStateError') {
+          recognitionRef.current = null;
+          restartTimerRef.current = setTimeout(() => {
+            createAndStart();
+          }, 350);
+        } else {
+          setError('Không thể bắt đầu nghe. Vui lòng thử lại.');
         }
       }
-      const text = final.trim();
-      if (text) {
-        setTranscript(text);
-        setFinalTranscript(text);
-      }
     };
 
-    recognition.onerror = (event: any) => {
-      const err = event?.error || 'Speech recognition error';
-      // Bỏ qua lỗi 'aborted' vì ta tự gọi abort khi dọn dẹp
-      if (err !== 'aborted' && err !== 'no-speech') {
-        setError(err);
-      }
-      setListening(false);
-    };
-
-    recognition.onend = () => {
-      setListening(false);
-    };
-
-    recognitionRef.current = recognition;
-    setListening(true);
-
-    try {
-      recognition.start();
-    } catch {
-      setListening(false);
-      setError('Không thể bắt đầu nghe. Vui lòng thử lại.');
-    }
+    // Trên điện thoại, cần một khoảng trễ nhỏ sau khi abort phiên cũ
+    // để trình duyệt giải phóng micro trước khi mở phiên mới
+    restartTimerRef.current = setTimeout(() => {
+      restartTimerRef.current = null;
+      createAndStart();
+    }, 300);
   }, [destroyRecognition, reset]);
 
   return {
