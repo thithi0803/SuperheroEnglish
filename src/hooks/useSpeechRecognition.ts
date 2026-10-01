@@ -25,6 +25,7 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   const [needsPermission, setNeedsPermission] = useState(false);
   const recognitionRef = useRef<any>(null);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const permissionGrantedRef = useRef(false);
 
   const supported = typeof window !== 'undefined' &&
     ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
@@ -67,6 +68,67 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     setError(null);
   }, []);
 
+  const createAndStart = useCallback(() => {
+    const RecognitionClass = getRecognitionClass();
+    if (!RecognitionClass) {
+      setError('Trình duyệt không hỗ trợ nhận diện giọng nói');
+      return;
+    }
+
+    const recognition = new RecognitionClass();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event: any) => {
+      let final = '';
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          final += result[0].transcript;
+        }
+      }
+      const text = final.trim();
+      if (text) {
+        setTranscript(text);
+        setFinalTranscript(text);
+      }
+    };
+
+    recognition.onerror = (event: any) => {
+      const err = event?.error || 'Speech recognition error';
+      if (err === 'not-allowed' || err === 'service-not-allowed') {
+        setNeedsPermission(true);
+        setError(null);
+      } else if (err !== 'aborted' && err !== 'no-speech') {
+        setError(err);
+      }
+      setListening(false);
+    };
+
+    recognition.onend = () => {
+      setListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    setListening(true);
+
+    try {
+      recognition.start();
+    } catch (startErr: any) {
+      setListening(false);
+      if (startErr?.name === 'InvalidStateError') {
+        recognitionRef.current = null;
+        restartTimerRef.current = setTimeout(() => {
+          createAndStart();
+        }, 350);
+      } else {
+        setError('Không thể bắt đầu nghe. Vui lòng thử lại.');
+      }
+    }
+  }, []);
+
   const startListening = useCallback(() => {
     const RecognitionClass = getRecognitionClass();
     if (!RecognitionClass) {
@@ -94,69 +156,25 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       }
     }
 
-    const createAndStart = () => {
-      const recognition = new RecognitionClass();
-      recognition.lang = 'en-US';
-      recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.maxAlternatives = 1;
+    // Nếu đã được cấp phép trước đó, mở recognition trực tiếp không cần xin lại
+    if (permissionGrantedRef.current) {
+      restartTimerRef.current = setTimeout(() => {
+        restartTimerRef.current = null;
+        createAndStart();
+      }, 300);
+      return;
+    }
 
-      recognition.onresult = (event: any) => {
-        let final = '';
-        for (let i = 0; i < event.results.length; i++) {
-          const result = event.results[i];
-          if (result.isFinal) {
-            final += result[0].transcript;
-          }
-        }
-        const text = final.trim();
-        if (text) {
-          setTranscript(text);
-          setFinalTranscript(text);
-        }
-      };
-
-      recognition.onerror = (event: any) => {
-        const err = event?.error || 'Speech recognition error';
-        if (err === 'not-allowed' || err === 'service-not-allowed') {
-          setNeedsPermission(true);
-          setError(null);
-        } else if (err !== 'aborted' && err !== 'no-speech') {
-          setError(err);
-        }
-        setListening(false);
-      };
-
-      recognition.onend = () => {
-        setListening(false);
-      };
-
-      recognitionRef.current = recognition;
-      setListening(true);
-
-      try {
-        recognition.start();
-      } catch (startErr: any) {
-        setListening(false);
-        if (startErr?.name === 'InvalidStateError') {
-          recognitionRef.current = null;
-          restartTimerRef.current = setTimeout(() => {
-            createAndStart();
-          }, 350);
-        } else {
-          setError('Không thể bắt đầu nghe. Vui lòng thử lại.');
-        }
-      }
-    };
-
-    // Yêu cầu cấp phép micro qua getUserMedia trước khi mở SpeechRecognition.
-    // Điều này kích hoạt popup xin quyền micro trên điện thoại.
-    // Sau khi được cấp, dừng stream ngay để không chiếm micro.
+    // Gọi getUserMedia NGAY TRONG CÚ CLICK để trình duyệt điện thoại
+    // nhận diện đây là hành động của người dùng và hiện popup cấp phép micro.
+    // Không được bọc trong setTimeout vì sẽ mất user-activation context.
     const requestPermission = async () => {
       if (navigator.mediaDevices?.getUserMedia) {
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Dừng stream ngay để không chiếm micro — SpeechRecognition sẽ tự mở lại
           stream.getTracks().forEach((t) => t.stop());
+          permissionGrantedRef.current = true;
           setNeedsPermission(false);
         } catch (micErr: any) {
           if (micErr?.name === 'NotAllowedError' || micErr?.name === 'PermissionDeniedError') {
@@ -165,14 +183,15 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
           }
         }
       }
-      createAndStart();
+      // Mở recognition sau khi đã có quyền — độ trễ nhỏ để micro được giải phóng
+      restartTimerRef.current = setTimeout(() => {
+        restartTimerRef.current = null;
+        createAndStart();
+      }, 300);
     };
 
-    restartTimerRef.current = setTimeout(() => {
-      restartTimerRef.current = null;
-      requestPermission();
-    }, 300);
-  }, [destroyRecognition, reset]);
+    requestPermission();
+  }, [destroyRecognition, reset, createAndStart]);
 
   return {
     supported,
