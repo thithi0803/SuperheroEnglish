@@ -35,7 +35,7 @@ export function Stage3({ lesson, onComplete }: Props) {
     if (!listening && finalTranscript && phase === 'battle') {
       checkPronunciation(finalTranscript);
     }
-  }, [listening]);
+  }, [listening, finalTranscript, phase, magicPhrase]);
 
   const checkPronunciation = (spoken: string) => {
     setAttempts((a) => a + 1);

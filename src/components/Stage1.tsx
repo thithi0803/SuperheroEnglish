@@ -11,7 +11,7 @@ interface Props {
 
 export function Stage1({ lesson, onComplete }: Props) {
   const { speak, speaking, supported: ttsSupported } = useSpeechSynthesis();
-  const { supported: srSupported, listening, transcript, finalTranscript, startListening, reset } = useSpeechRecognition();
+  const { supported: srSupported, listening, transcript, finalTranscript, startListening, stopListening, reset } = useSpeechRecognition();
   const [practiceTarget, setPracticeTarget] = useState<string | null>(null);
   const [practiceMatched, setPracticeMatched] = useState(false);
 
@@ -22,6 +22,10 @@ export function Stage1({ lesson, onComplete }: Props) {
   };
 
   const handlePractice = (text: string) => {
+    if (listening && practiceTarget === text) {
+      stopListening();
+      return;
+    }
     setPracticeTarget(text);
     setPracticeMatched(false);
     reset();
