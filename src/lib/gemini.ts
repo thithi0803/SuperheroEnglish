@@ -234,8 +234,10 @@ IMPORTANT RULES:
 - For visual color questions, include an emoji plus a clear color marker, such as "What color is the bird 🐦🔵?" The color must be represented visually, not written as a word in the question. The correct option must match the visual marker. Do not use a different color just because it is possible for that animal in real life.
 - Do not ask a generic animal color question without a visual color marker. A real bird can be blue, red, green, white, black, or many other colors; the lesson must not pretend otherwise.
 - Before returning JSON, verify the topic, the question wording, every option category, and every correct index. No answer may already appear as a written word in its question.
-- The fill_in_blank.sentence MUST contain "___" (three underscores) at the missing word position
-- The fill_in_blank.options must have exactly 4 English word choices
+- The fill_in_blank.sentence MUST contain "___" (three underscores) at the missing word position.
+- The fill_in_blank.options must have exactly 4 English word choices ALL from the same semantic category (all colors, all animals, all numbers, all actions, etc). NEVER mix categories. For example, "green, cat, bird, dog" is FORBIDDEN because it mixes a color with animals.
+- The fill_in_blank correct answer must make a factually true and real-world sensible sentence when inserted. NEVER produce "The dog is ___" with "green" as the answer because dogs are not green. If the subject is an animal and the blank describes a property, use a realistic one (e.g. "big", "small", "fast", "happy") or restructure the sentence. If the blank is for a color, the subject must be something that genuinely comes in that color.
+- The fill_in_blank.options must not contain a word that already appears in the sentence stem. For example, if the sentence is "The dog is ___", the word "dog" must not appear in options.
 - The sentence_builder.scrambled_words must contain exactly the same words as correct_sentence, only shuffled
 - The sentence_builder.correct_sentence MUST be a complete, natural, grammatically correct English sentence. Check word order, adjective order, articles, subject-verb agreement, and punctuation before returning it. Never create fragments such as "The cat is big red"; use natural grammar such as "The cat is big and red" or "The big red cat".
 - The listening.audio_text should be a simple English sentence related to the topic
@@ -299,22 +301,37 @@ function hasBasicContentError(lesson: GeminiLesson, topic: string, level: Level)
   const forbiddenTerms = topicForbiddenTerms[topic] ?? [];
   if (forbiddenTerms.some((term) => new RegExp(`\\b${term}\\b`, 'i').test(lessonText))) return true;
 
-  return lesson.stage2.multiple_choice.some((question) => {
+  const mcError = lesson.stage2.multiple_choice.some((question) => {
     const questionText = question.question_en.trim();
     const correctAnswer = question.options[question.correct_index]?.trim().toLowerCase();
     const asksColor = /what color|which color/i.test(questionText);
     const hasVisualCue = /🐦|🦜|🐶|🐕|🐱|🐈|🐰|🐭|🐮|🐷|🐸|🦁|🐯|🐻|🐼|🐨|🐵|🦊|🐺|🐴|🦄|🐔|🦆|🦉|🦋|🐝|🐠|🐟|🦈/.test(questionText)
       || /drawing|picture|image|toy|cartoon/i.test(questionText);
-    const optionCategories = new Set(question.options.map(classifyAnswer).filter((category): category is string => category !== null));
+    const optionCategories = new Set(question.options.map(classifyAnswer).filter((c): c is string => c !== null));
 
     if (asksColor && !hasVisualCue) return true;
-    if (optionCategories.size > 1 || (optionCategories.size === 1 && question.options.some((option) => classifyAnswer(option) === null))) return true;
+    if (optionCategories.size > 1) return true;
     if (containsWholeAnswer(questionText, correctAnswer)) return true;
     if (/\b(bird|the bird)\b/i.test(questionText) && /🐦|🐤|🐥|🦜|🦆/.test(questionText) && correctAnswer !== 'blue') return true;
     if (/\b(dog|the dog)\b/i.test(questionText) && /🐶|🐕/.test(questionText) && correctAnswer === 'blue') return true;
 
     return false;
   });
+  if (mcError) return true;
+
+  const fill = lesson.stage2.fill_in_blank;
+  const fillAnswer = fill.options[fill.correct_index]?.trim().toLowerCase() ?? '';
+  const fillSentencePlain = fill.sentence.replace(/___/g, ' ').replace(/[^a-z\s]/gi, ' ').toLowerCase();
+  const fillOptionCategories = new Set(fill.options.map(classifyAnswer).filter((c): c is string => c !== null));
+
+  if (fillOptionCategories.size > 1) return true;
+  if (containsWholeAnswer(fillSentencePlain, fillAnswer)) return true;
+  if (!fill.sentence.includes('___')) return true;
+
+  const subjectAnimal = /\b(dog|cat|bird|fish|rabbit|cow|pig|frog|lion|tiger)\b/i.exec(fill.sentence)?.[1]?.toLowerCase();
+  if (subjectAnimal && classifyAnswer(fillAnswer) === 'colors') return true;
+
+  return false;
 }
 
 export async function generateLesson(req: LessonRequest): Promise<GeminiLesson> {
