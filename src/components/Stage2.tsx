@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import type { GeminiLesson } from '@/types';
+import type { GeminiLesson, MultipleChoiceQuestion } from '@/types';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
 import { Check, X, ArrowRight, Volume2, Shuffle, ArrowLeft, Zap, PenLine } from 'lucide-react';
 import { sanitizeQuestionText } from '@/lib/questionText';
@@ -10,6 +10,37 @@ interface Props {
 }
 
 type ExerciseType = 'mc' | 'fill' | 'sentence' | 'listening';
+
+const blueBirdIllustration = {
+  src: 'https://images.pexels.com/photos/20845725/pexels-photo-20845725.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
+  alt: 'A blue bird sitting on a branch',
+};
+
+function getIllustrationForQuestion(question: string): typeof blueBirdIllustration | null {
+  if (/\bbird\b/i.test(question) && /what color|which color/i.test(question)) {
+    return blueBirdIllustration;
+  }
+  return null;
+}
+
+function normalizeVisualQuestion(question: MultipleChoiceQuestion): MultipleChoiceQuestion {
+  const normalized: MultipleChoiceQuestion = {
+    ...question,
+    options: [...question.options],
+  };
+
+  if (/\bbird\b/i.test(question.question_en) && /🐦/.test(question.question_en) && /what color|which color/i.test(question.question_en)) {
+    normalized.options[question.correct_index] = 'blue';
+    normalized.explanation_vi = 'Con chim trong hình minh họa có màu xanh dương.';
+  }
+
+  if (/\bdog\b/i.test(question.question_en) && /🐶|🐕/.test(question.question_en) && /what color|which color/i.test(question.question_en)) {
+    normalized.options[question.correct_index] = 'brown';
+    normalized.explanation_vi = 'Con chó trong hình minh họa có màu nâu và trắng.';
+  }
+
+  return normalized;
+}
 
 function normalizeSentence(sentence: string): string {
   return sentence.replace(
@@ -62,6 +93,7 @@ export function Stage2({ lesson, onComplete }: Props) {
   const currentType = exercises[exerciseIndex];
 
   const mcIndex = exerciseIndex <= 2 ? exerciseIndex : 0;
+  const currentMultipleChoice = normalizeVisualQuestion(multiple_choice[mcIndex]);
 
   const handleFillAnswer = (index: number) => {
     if (fillSubmitted) return;
@@ -76,7 +108,7 @@ export function Stage2({ lesson, onComplete }: Props) {
     if (showResult) return;
     setSelectedAnswer(index);
     setShowResult(true);
-    if (index === multiple_choice[mcIndex].correct_index) {
+    if (index === currentMultipleChoice.correct_index) {
       setCorrectCount((c) => c + 1);
     }
   };
@@ -166,12 +198,23 @@ export function Stage2({ lesson, onComplete }: Props) {
       {currentType === 'mc' && multiple_choice[mcIndex] && (
         <div key={`mc-${exerciseIndex}`} className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
           <span className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-2 block">Trắc Nghiệm</span>
-          <p className="text-lg font-bold text-white mb-5">{sanitizeQuestionText(multiple_choice[mcIndex].question_en, multiple_choice[mcIndex].options, multiple_choice[mcIndex].correct_index)}</p>
+          {getIllustrationForQuestion(multiple_choice[mcIndex].question_en) && (
+            <div className="mb-5 overflow-hidden rounded-xl border border-cyan-400/20 bg-slate-900/60">
+              <img
+                src={getIllustrationForQuestion(multiple_choice[mcIndex].question_en)?.src}
+                alt={getIllustrationForQuestion(multiple_choice[mcIndex].question_en)?.alt}
+                loading="lazy"
+                className="mx-auto h-44 w-full object-cover sm:h-52"
+              />
+              <p className="px-3 py-2 text-center text-xs text-slate-400">Hình minh họa: chim xanh</p>
+            </div>
+          )}
+          <p className="text-lg font-bold text-white mb-5">{sanitizeQuestionText(currentMultipleChoice.question_en, currentMultipleChoice.options, currentMultipleChoice.correct_index)}</p>
 
           <div className="space-y-3">
-            {multiple_choice[mcIndex].options.map((option, index) => {
+            {currentMultipleChoice.options.map((option, index) => {
               const isSelected = selectedAnswer === index;
-              const isCorrect = multiple_choice[mcIndex].correct_index === index;
+              const isCorrect = currentMultipleChoice.correct_index === index;
               const showCorrect = showResult && isCorrect;
               const showWrong = showResult && isSelected && !isCorrect;
 
@@ -196,7 +239,7 @@ export function Stage2({ lesson, onComplete }: Props) {
 
           {showResult && (
             <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 mt-4">
-              <p className="text-sm text-slate-300">{multiple_choice[mcIndex].explanation_vi}</p>
+              <p className="text-sm text-slate-300">{currentMultipleChoice.explanation_vi}</p>
             </div>
           )}
         </div>
