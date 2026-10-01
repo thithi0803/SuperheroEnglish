@@ -18,6 +18,8 @@ export interface LessonCompletion {
   score: number;
   stars: number;
   xp_earned: number;
+  learned_words: string[];
+  weak_words: string[];
   completed_at: string;
 }
 
@@ -42,6 +44,7 @@ export interface MultipleChoiceQuestion {
   options: string[];
   correct_index: number;
   explanation_vi: string;
+  option_category?: string;
 }
 
 export interface SentenceBuilderQuestion {
@@ -63,6 +66,7 @@ export interface FillInBlankQuestion {
   options: string[];
   correct_index: number;
   explanation_vi: string;
+  option_category?: string;
 }
 
 export interface BossChallenge {
@@ -71,6 +75,16 @@ export interface BossChallenge {
   boss_emoji: string;
   boss_name: string;
   boss_hp: number;
+}
+
+export interface LessonGenerationContext {
+  topic: string;
+  level: Level;
+  lessonIndex: number;
+  starLevel: number;
+  learnedWords: string[];
+  allLearnedWords: string[];
+  weakWords: string[];
 }
 
 export interface GeminiLesson {

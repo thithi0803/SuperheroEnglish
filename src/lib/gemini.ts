@@ -1,11 +1,5 @@
-import type { GeminiLesson, Level, PlacementQuestion } from '@/types';
+import type { GeminiLesson, Level, LessonGenerationContext, PlacementQuestion } from '@/types';
 import { supabase } from '@/lib/supabase';
-interface LessonRequest {
-  topic: string;
-  level: Level;
-  lessonIndex: number;
-}
-
 class GeminiError extends Error {
   constructor(message: string) {
     super(message);
@@ -42,78 +36,34 @@ async function callGemini(prompt: string): Promise<string> {
 
 export function getTopicList(): { topic: string; emoji: string }[] {
   return [
-    { topic: 'Greetings and Introductions', emoji: '👋' },
-    { topic: 'Colors and Animals', emoji: '🎨' },
-    { topic: 'Numbers and Counting', emoji: '🔢' },
-    { topic: 'Family Members', emoji: '👨‍👩‍👧‍👦' },
-    { topic: 'Food and Drinks', emoji: '🍔' },
-    { topic: 'Daily Routines', emoji: '⏰' },
-    { topic: 'Body Parts', emoji: '🧍' },
-    { topic: 'Weather and Seasons', emoji: '🌤️' },
-    { topic: 'School and Classroom', emoji: '🏫' },
-    { topic: 'Hobbies and Sports', emoji: '⚽' },
+    { topic: 'Greetings and Names', emoji: '👋' },
+    { topic: 'Family and Friends', emoji: '👨‍👩‍👧‍👦' },
+    { topic: 'Numbers and Age', emoji: '🔢' },
+    { topic: 'Colors and Shapes', emoji: '🎨' },
+    { topic: 'School Things', emoji: '🏫' },
+    { topic: 'Animals and Pets', emoji: '🐾' },
+    { topic: 'Food and Drinks', emoji: '🍎' },
+    { topic: 'My Body and Actions', emoji: '🧍' },
+    { topic: 'Home and Toys', emoji: '🏠' },
+    { topic: 'Daily Routines and Weather', emoji: '⏰' },
   ];
 }
 
-const topicScope: Record<string, { focus: string; answerExamples: string; forbidden: string }> = {
-  'Greetings and Introductions': {
-    focus: 'greetings, names, introductions, and polite leave-taking',
-    answerExamples: 'hello, hi, goodbye, name, friend',
-    forbidden: 'animal names, colors, food, numbers, body parts, sports',
-  },
-  'Colors and Animals': {
-    focus: 'common animal names and the colors shown by the lesson emojis',
-    answerExamples: 'cat, dog, bird, fish, blue, red, green, yellow',
-    forbidden: 'counting questions, family roles, food, classroom objects, sports',
-  },
-  'Numbers and Counting': {
-    focus: 'counting objects, number words, and simple addition or subtraction',
-    answerExamples: 'one, two, three, four, five, six, seven, eight, nine, ten',
-    forbidden: 'animal names, colors, food, family roles, body parts, sports, classroom objects',
-  },
-  'Family Members': {
-    focus: 'family roles and simple family relationships',
-    answerExamples: 'mother, father, sister, brother, grandmother, grandfather',
-    forbidden: 'animal names, colors, counting, food, sports, classroom objects',
-  },
-  'Food and Drinks': {
-    focus: 'common foods, drinks, tastes, and meals',
-    answerExamples: 'apple, bread, rice, milk, water, juice',
-    forbidden: 'animal names, colors as the main target, counting, family roles, sports',
-  },
-  'Daily Routines': {
-    focus: 'everyday actions and times of day',
-    answerExamples: 'wake up, eat, study, play, sleep, morning, evening',
-    forbidden: 'animal names, colors, food vocabulary as the main target, family roles, sports',
-  },
-  'Body Parts': {
-    focus: 'common body parts and simple actions using them',
-    answerExamples: 'head, hand, eye, ear, nose, mouth, foot',
-    forbidden: 'animal names, colors, counting, food, family roles, sports',
-  },
-  'Weather and Seasons': {
-    focus: 'weather conditions and the four seasons',
-    answerExamples: 'sunny, rainy, cloudy, windy, hot, cold, spring, summer',
-    forbidden: 'animal names, counting, food, family roles, classroom objects',
-  },
-  'School and Classroom': {
-    focus: 'classroom objects, school actions, and simple instructions',
-    answerExamples: 'book, pen, desk, chair, teacher, read, write',
-    forbidden: 'animal names, colors as the main target, counting, food, family roles',
-  },
-  'Hobbies and Sports': {
-    focus: 'hobbies, games, and sports actions',
-    answerExamples: 'football, swim, run, draw, sing, read, dance',
-    forbidden: 'animal names, colors, counting, food, family roles, classroom objects',
-  },
+const topicScope: Record<string, { focus: string; examples: string }> = {
+  'Greetings and Names': { focus: 'greetings, names, introductions, and polite leave-taking', examples: 'hello, hi, goodbye, name, friend' },
+  'Family and Friends': { focus: 'family members, friends, and simple relationships', examples: 'mother, father, sister, brother, friend' },
+  'Numbers and Age': { focus: 'numbers, counting, and saying age', examples: 'one, two, three, four, five, six, seven, eight, nine, ten' },
+  'Colors and Shapes': { focus: 'basic colors and simple shapes', examples: 'red, blue, green, yellow, circle, square, triangle' },
+  'School Things': { focus: 'classroom objects, school actions, and simple instructions', examples: 'book, pen, desk, chair, teacher, read, write' },
+  'Animals and Pets': { focus: 'common animals, pets, and their simple features', examples: 'cat, dog, bird, fish, rabbit, big, small' },
+  'Food and Drinks': { focus: 'common foods, drinks, tastes, and meals', examples: 'apple, bread, rice, milk, water, juice' },
+  'My Body and Actions': { focus: 'body parts and simple actions using them', examples: 'head, hand, eye, ear, run, jump, clap' },
+  'Home and Toys': { focus: 'rooms, home objects, and children\'s toys', examples: 'home, room, bed, ball, doll, car' },
+  'Daily Routines and Weather': { focus: 'daily actions, times of day, and simple weather', examples: 'wake up, eat, study, sleep, sunny, rainy' },
 };
 
-function buildPrompt(req: LessonRequest): string { 
-  const scope = topicScope[req.topic] ?? {
-    focus: req.topic,
-    answerExamples: req.topic,
-    forbidden: 'all unrelated topics',
-  };
+function buildPrompt(req: LessonGenerationContext): string {
+  const scope = topicScope[req.topic] ?? { focus: req.topic, examples: req.topic };
   const levelGuidance = {
     Beginner: 'Use very simple words suitable for ages 5-7. Basic 3-4 letter words. Present tense only.',
     Intermediate: 'Use simple words suitable for ages 8-10. Include simple past tense and basic adjectives.',
@@ -129,9 +79,13 @@ ${levelGuidance[req.level]}
 STRICT LESSON SCOPE:
 - This lesson is isolated to the topic above: ${scope.focus}.
 - Every vocabulary item, example, grammar sentence, multiple-choice question, fill-in-the-blank, sentence builder, listening sentence, image label, and answer option must teach or directly practice this topic.
-- Valid answer examples for this topic include: ${scope.answerExamples}.
-- Do not use material from these unrelated topics: ${scope.forbidden}.
-- Do not fill missing questions with examples from another lesson. If a subtopic needs variety, create another example within this same topic.
+- Valid answer examples for this topic include: ${scope.examples}.
+- Do not use material from another topic or fill missing questions with unrelated examples.
+- This is star level ${req.starLevel} for this topic. Previously learned words for this topic are: ${req.learnedWords.join(', ') || 'none'}.
+- Never repeat a previously learned word in stage1.vocab. Create exactly five new words inside this topic.
+- Earlier learned words from the full course are: ${req.allLearnedWords.join(', ') || 'none'}.
+- Words that need review are: ${req.weakWords.join(', ') || 'none'}.
+- Use a 70/30 balance: about 70% of exercises target the current topic's five new words and sentence pattern; about 30% naturally review earlier or weak words without changing the lesson topic.
 
 CRITICAL LANGUAGE AND CONTENT RULES:
 - ALL English text fields MUST contain ONLY English. NEVER mix Vietnamese into English fields.
@@ -139,6 +93,8 @@ CRITICAL LANGUAGE AND CONTENT RULES:
 - The "translation" or "_vi" fields are SEPARATE translations, not mixed-language text.
 - Fill-in-the-blank sentences MUST use three underscores "___" at the missing word position.
 - Every exercise must be factually sensible for a child and consistent with ordinary real life.
+- At Beginner level, use CEFR Pre-A1 vocabulary and only the simple present in every English sentence. Do not use past, future, continuous, perfect, passive, or complex clauses.
+- At Intermediate and Advanced levels, use only grammar appropriate to the requested level.
 - Do not make a color claim about an ordinary animal as if all animals of that kind have one fixed color. A real dog or bird can have many different colors.
 - A color question about an animal is allowed ONLY when the question includes a specific visual cue made from emoji. The answer must match that visible cue. For example: "What color is the bird 🐦🔵?" with "blue" as the correct answer. Never ask "What color is the bird?" and invent a color without a visual cue.
 - Do not use a stock photo or external image in the lesson data. Use emoji only. For a blue bird color question, use 🐦🔵 and use "blue" as the correct answer. The word "blue" must not appear in the question stem.
@@ -163,6 +119,8 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
     "vocab": [
       {"word": "English word", "emoji": "emoji", "meaning_vi": "Vietnamese meaning (Vietnamese only)", "example_en": "English example sentence (English only)", "example_vi": "Vietnamese translation (Vietnamese only)"},
       {"word": "...", "emoji": "...", "meaning_vi": "...", "example_en": "...", "example_vi": "..."},
+      {"word": "...", "emoji": "...", "meaning_vi": "...", "example_en": "...", "example_vi": "..."},
+      {"word": "...", "emoji": "...", "meaning_vi": "...", "example_en": "...", "example_vi": "..."},
       {"word": "...", "emoji": "...", "meaning_vi": "...", "example_en": "...", "example_vi": "..."}
     ],
     "grammar": {
@@ -180,6 +138,7 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
         "question_en": "English question that does not reveal the answer in words; use a blank when the target word would otherwise appear in the stem",
         "question_vi": "Vietnamese translation of the question (Vietnamese only)",
         "options": ["English option 1", "English option 2", "English option 3", "English option 4"],
+        "option_category": "the semantic category shared by all four options",
         "correct_index": 0,
         "explanation_vi": "Vietnamese explanation (Vietnamese only)"
       },
@@ -194,6 +153,7 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
       "sentence": "English sentence with ___ at the missing word position (English only, MUST contain ___)",
       "translation_vi": "Vietnamese translation of the full sentence (Vietnamese only)",
       "options": ["English word 1", "English word 2", "English word 3", "English word 4"],
+      "option_category": "the semantic category shared by all four options",
       "correct_index": 0,
       "explanation_vi": "Vietnamese explanation (Vietnamese only)"
     },
@@ -226,8 +186,9 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
 }
 
 IMPORTANT RULES:
-- Generate exactly 3 vocabulary items in stage1.vocab
-- Generate exactly 3 multiple choice questions in stage2.multiple_choice
+- Generate exactly 5 vocabulary items in stage1.vocab. Each word must be new for this topic and have a non-empty Vietnamese meaning.
+- Generate exactly 3 multiple choice questions in stage2.multiple_choice.
+- Use the requested 70/30 current-topic and review balance across all stage2 exercises.
 - CRITICAL for multiple_choice: The question MUST NOT reveal the answer in words. Never put the target answer in the question and then ask "What is it?". For example, NEVER write "The superhero has a small cat 🐱. What is it?" with "cat" as an option.
 - If the target word is an animal, use a blank: "The superhero has a small ___ 🐱. What animal is it?" with four animal options. The emoji is a visual cue, not a written answer. The word "cat" must not appear in the question stem.
 - Every multiple-choice question must have exactly four options from the same answer category. Do not mix animals, colors, adjectives, numbers, or unrelated words in one set. For example, "cat, red, dog, fast" is forbidden.
@@ -237,7 +198,7 @@ IMPORTANT RULES:
 - The fill_in_blank.sentence MUST contain "___" (three underscores) at the missing word position.
 - The fill_in_blank.options must have exactly 4 English word choices ALL from the same semantic category (all colors, all animals, all numbers, all actions, etc). NEVER mix categories. For example, "green, cat, bird, dog" is FORBIDDEN because it mixes a color with animals.
 - The fill_in_blank correct answer must make a factually true and real-world sensible sentence when inserted. NEVER produce "The dog is ___" with "green" as the answer because dogs are not green. If the subject is an animal and the blank describes a property, use a realistic one (e.g. "big", "small", "fast", "happy") or restructure the sentence. If the blank is for a color, the subject must be something that genuinely comes in that color.
-- The fill_in_blank.options must not contain a word that already appears in the sentence stem. For example, if the sentence is "The dog is ___", the word "dog" must not appear in options.
+- The fill_in_blank.options must not contain a word that already appears in the sentence stem. The four candidate substitutions must be tested one by one; only one may make a grammatically correct, factually sensible sentence. Replace every ambiguous distractor with a clearly wrong option from the same lesson topic.
 - The sentence_builder.scrambled_words must contain exactly the same words as correct_sentence, only shuffled
 - The sentence_builder.correct_sentence MUST be a complete, natural, grammatically correct English sentence. Check word order, adjective order, articles, subject-verb agreement, and punctuation before returning it. Never create fragments such as "The cat is big red"; use natural grammar such as "The cat is big and red" or "The big red cat".
 - The listening.audio_text should be a simple English sentence related to the topic
@@ -245,38 +206,11 @@ IMPORTANT RULES:
 - The magic_phrase should use the grammar pattern from stage1
 - All "_vi" fields contain ONLY Vietnamese text, never English
 - All "_en" fields and non-"_vi" fields contain ONLY English text, never Vietnamese
-- Final content review: reject and rewrite any item that is grammatically correct but semantically absurd or misleading for a child, especially questions about colors, animal features, food, body parts, numbers, or everyday objects.
+- Final universal content review: test every answer substitution, grammar sentence, example, translation, and explanation. Reject any ambiguous, factually impossible, truncated, incomplete, or semantically misleading item. Every visible explanation and introduction must be complete and end with valid punctuation.
 - Each lesson must be UNIQUE - use different vocabulary, grammar patterns, and questions for each topic
 - Make it fun and superhero-themed where possible
 - Respond with ONLY raw JSON, no markdown formatting
 - GRAMMAR RULE: Every English sentence must be 100% grammatically correct and natural. Adjective order must follow English rules (opinion → size → color, e.g. "a big red cat" NOT "a red big cat"). Never produce word-salad sentences`;
-}
-
-const answerCategories: Record<string, Set<string>> = {
-  animals: new Set(['cat', 'dog', 'bird', 'fish', 'rabbit', 'mouse', 'cow', 'pig', 'frog', 'lion', 'tiger']),
-  colors: new Set(['red', 'blue', 'green', 'yellow', 'black', 'white', 'brown', 'orange', 'pink', 'purple']),
-  numbers: new Set(['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']),
-  family: new Set(['mother', 'father', 'mom', 'dad', 'sister', 'brother', 'grandmother', 'grandfather']),
-  food: new Set(['apple', 'bread', 'rice', 'milk', 'water', 'juice', 'banana', 'egg', 'cake']),
-  body: new Set(['head', 'hand', 'eye', 'ear', 'nose', 'mouth', 'foot', 'leg', 'arm']),
-};
-
-const topicForbiddenTerms: Record<string, string[]> = {
-  'Numbers and Counting': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.food, ...answerCategories.family],
-  'Greetings and Introductions': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food],
-  'Colors and Animals': [...answerCategories.numbers, ...answerCategories.family, ...answerCategories.food, ...answerCategories.body],
-  'Family Members': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food],
-  'Food and Drinks': [...answerCategories.animals, ...answerCategories.family, ...answerCategories.body],
-  'Daily Routines': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food, ...answerCategories.family, ...answerCategories.body],
-  'Body Parts': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food],
-  'Weather and Seasons': [...answerCategories.animals, ...answerCategories.numbers, ...answerCategories.food, ...answerCategories.family, ...answerCategories.body],
-  'School and Classroom': [...answerCategories.animals, ...answerCategories.family, ...answerCategories.food],
-  'Hobbies and Sports': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food, ...answerCategories.family, ...answerCategories.body],
-};
-
-function classifyAnswer(value: string): string | null {
-  const normalized = value.trim().toLowerCase();
-  return Object.entries(answerCategories).find(([, values]) => values.has(normalized))?.[0] ?? null;
 }
 
 function containsWholeAnswer(text: string, answer: string): boolean {
@@ -287,60 +221,80 @@ function containsWholeAnswer(text: string, answer: string): boolean {
   return new RegExp(`(^|\\s)${answerPattern}($|\\s)`).test(normalizedText);
 }
 
+function hasSentencePunctuation(text: string): boolean {
+  return /[.!?]$/.test(text.trim());
+}
+
+function hasUniqueOptions(options: string[]): boolean {
+  const normalized = options.map((option) => option.trim().toLowerCase());
+  return options.length === 4 && normalized.every(Boolean) && new Set(normalized).size === 4;
+}
+
+function isCompleteSentence(text: string): boolean {
+  const trimmed = text.trim();
+  return /^[A-Z]/.test(trimmed)
+    && hasSentencePunctuation(trimmed)
+    && !trimmed.includes('___')
+    && !/\s{2,}/.test(trimmed)
+    && !/[.!?]{2,}$/.test(trimmed);
+}
+
+function hasMatchingSentenceWords(sentence: string, words: string[]): boolean {
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9']+/g, ' ').trim().split(/\s+/).filter(Boolean).sort();
+  return JSON.stringify(normalize(sentence)) === JSON.stringify(normalize(words.join(' ')));
+}
+
 function hasBasicContentError(lesson: GeminiLesson, topic: string, level: Level): boolean {
   if (lesson.topic !== topic || lesson.level !== level) return true;
-  if (lesson.stage2.multiple_choice.length !== 3) return true;
+  if (lesson.stage1.vocab.length !== 5 || lesson.stage2.multiple_choice.length !== 3) return true;
 
-  const lessonText = JSON.stringify({
-    vocab: lesson.stage1.vocab,
-    multiple_choice: lesson.stage2.multiple_choice,
-    fill_in_blank: lesson.stage2.fill_in_blank,
-    sentence_builder: lesson.stage2.sentence_builder,
-    listening: lesson.stage2.listening,
-  }).toLowerCase();
-  const forbiddenTerms = topicForbiddenTerms[topic] ?? [];
-  if (forbiddenTerms.some((term) => new RegExp(`\\b${term}\\b`, 'i').test(lessonText))) return true;
+  const visibleText = [
+    lesson.stage1.intro_vi,
+    lesson.stage1.intro_en,
+    lesson.stage1.grammar.explanation_vi,
+    lesson.stage1.magic_phrase_vi,
+    ...lesson.stage1.vocab.flatMap((item) => [item.word, item.meaning_vi, item.example_en, item.example_vi]),
+    ...lesson.stage2.multiple_choice.flatMap((item) => [item.question_en, item.question_vi, item.explanation_vi, ...item.options]),
+    lesson.stage2.fill_in_blank.translation_vi,
+    lesson.stage2.fill_in_blank.explanation_vi,
+    lesson.stage2.sentence_builder.instruction_vi,
+    lesson.stage2.sentence_builder.translation_vi,
+    lesson.stage3.boss_challenge.magic_phrase_vi,
+  ];
 
-  const mcError = lesson.stage2.multiple_choice.some((question) => {
-    const questionText = question.question_en.trim();
-    const correctAnswer = question.options[question.correct_index]?.trim().toLowerCase();
-    const asksColor = /what color|which color/i.test(questionText);
-    const hasVisualCue = /🐦|🦜|🐶|🐕|🐱|🐈|🐰|🐭|🐮|🐷|🐸|🦁|🐯|🐻|🐼|🐨|🐵|🦊|🐺|🐴|🦄|🐔|🦆|🦉|🦋|🐝|🐠|🐟|🦈/.test(questionText)
-      || /drawing|picture|image|toy|cartoon/i.test(questionText);
-    const optionCategories = new Set(question.options.map(classifyAnswer).filter((c): c is string => c !== null));
+  if (visibleText.some((text) => typeof text !== 'string' || text.trim().length === 0)) return true;
+  if ([lesson.stage1.intro_vi, lesson.stage1.intro_en, lesson.stage1.grammar.explanation_vi, lesson.stage1.magic_phrase_vi]
+    .some((text) => !hasSentencePunctuation(text))) return true;
+  if (lesson.stage1.vocab.some((item) => !item.meaning_vi.trim() || !hasSentencePunctuation(item.example_en) || !hasSentencePunctuation(item.example_vi))) return true;
 
-    if (asksColor && !hasVisualCue) return true;
-    if (optionCategories.size > 1) return true;
-    if (containsWholeAnswer(questionText, correctAnswer)) return true;
-    if (/\b(bird|the bird)\b/i.test(questionText) && /🐦|🐤|🐥|🦜|🦆/.test(questionText) && correctAnswer !== 'blue') return true;
-    if (/\b(dog|the dog)\b/i.test(questionText) && /🐶|🐕/.test(questionText) && correctAnswer === 'blue') return true;
-
-    return false;
-  });
-  if (mcError) return true;
+  for (const question of lesson.stage2.multiple_choice) {
+    if (!question.option_category?.trim() || !hasUniqueOptions(question.options) || question.correct_index < 0 || question.correct_index > 3) return true;
+    if (!question.question_en.trim() || containsWholeAnswer(question.question_en, question.options[question.correct_index])) return true;
+  }
 
   const fill = lesson.stage2.fill_in_blank;
-  const fillAnswer = fill.options[fill.correct_index]?.trim().toLowerCase() ?? '';
-  const fillSentencePlain = fill.sentence.replace(/___/g, ' ').replace(/[^a-z\s]/gi, ' ').toLowerCase();
-  const fillOptionCategories = new Set(fill.options.map(classifyAnswer).filter((c): c is string => c !== null));
+  if (!fill.option_category?.trim() || !fill.sentence.includes('___') || !hasUniqueOptions(fill.options) || fill.correct_index < 0 || fill.correct_index > 3) return true;
+  if (fill.options.some((option) => containsWholeAnswer(fill.sentence.replace('___', ''), option))) return true;
+  const substitutions = fill.options.map((option) => fill.sentence.replace('___', option)).filter(isCompleteSentence);
+  if (substitutions.length > 1 && substitutions.length === fill.options.length) return true;
 
-  if (fillOptionCategories.size > 1) return true;
-  if (containsWholeAnswer(fillSentencePlain, fillAnswer)) return true;
-  if (!fill.sentence.includes('___')) return true;
+  const builder = lesson.stage2.sentence_builder;
+  if (!isCompleteSentence(builder.correct_sentence) || !hasMatchingSentenceWords(builder.correct_sentence, builder.scrambled_words)) return true;
 
-  const subjectAnimal = /\b(dog|cat|bird|fish|rabbit|cow|pig|frog|lion|tiger)\b/i.exec(fill.sentence)?.[1]?.toLowerCase();
-  if (subjectAnimal && classifyAnswer(fillAnswer) === 'colors') return true;
+  const listening = lesson.stage2.listening;
+  if (!isCompleteSentence(listening.audio_text) || listening.image_options.length !== 4 || !hasUniqueOptions(listening.image_options.map((item) => item.label))) return true;
+  if (listening.correct_index < 0 || listening.correct_index > 3) return true;
 
   return false;
 }
 
-export async function generateLesson(req: LessonRequest): Promise<GeminiLesson> {
+export async function generateLesson(req: LessonGenerationContext): Promise<GeminiLesson> {
   console.log(`[Gemini] Generating lesson: topic="${req.topic}", level=${req.level}, index=${req.lessonIndex}`);
 
   try {
     const qualityReminder = '\n\nQUALITY CHECK: The previous attempt violated lesson isolation or revealed an answer. Rebuild every exercise using only the requested topic. Keep all four options in one semantic category, remove any written answer from the question stem, and never borrow examples from another lesson.';
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
       const text = await callGemini(buildPrompt(req) + (attempt > 0 ? qualityReminder : ''));
       const lesson = parseJsonResponse<GeminiLesson>(text);
       if (!hasBasicContentError(lesson, req.topic, req.level)) {

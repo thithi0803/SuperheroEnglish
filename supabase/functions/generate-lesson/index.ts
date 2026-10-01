@@ -4,10 +4,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
 };
 
-const GEMINI_MODELS = ["gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-flash-lite-latest"];
-const API_TIMEOUT_MS = 45000;
+const PRIMARY_MODEL = "gemini-2.5-flash";
+const FALLBACK_MODEL = "gemini-2.0-flash";
+const API_TIMEOUT_MS = 8000;
+const MAX_ATTEMPTS = 3;
+// Redeploy trigger: updated model selection and retry logic
 
-class GeminiError extends Error {}
+class GeminiError extends Error {
+  retryable: boolean;
+
+  constructor(message: string, retryable = false) {
+    super(message);
+    this.name = "GeminiError";
+    this.retryable = retryable;
+  }
+}
 
 async function callModel(model: string, prompt: string): Promise<string> {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
@@ -15,6 +26,7 @@ async function callModel(model: string, prompt: string): Promise<string> {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
   try {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
@@ -25,40 +37,53 @@ async function callModel(model: string, prompt: string): Promise<string> {
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.8,
-            maxOutputTokens: 8192,
+            temperature: 0.35,
+            maxOutputTokens: 4096,
             responseMimeType: "application/json",
           },
         }),
       },
     );
 
-    if ([404, 429, 503].includes(response.status)) throw new Error(`RETRY_${response.status}`);
+    if (response.status === 404) throw new GeminiError("Gemini model unavailable.", true);
+    if (response.status === 408 || response.status === 429 || response.status >= 500) {
+      throw new GeminiError("Gemini request can be retried.", true);
+    }
     if (!response.ok) throw new GeminiError("Gemini returned an error.");
 
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new GeminiError("Gemini returned no content.");
+    if (typeof text !== "string" || text.trim().length === 0) {
+      throw new GeminiError("Gemini returned no content.", true);
+    }
     return text;
+  } catch (error) {
+    if (error instanceof GeminiError) throw error;
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new GeminiError("Gemini request timed out.", true);
+    }
+    throw new GeminiError("Gemini network request failed.", true);
   } finally {
     clearTimeout(timeout);
   }
 }
 
 async function generate(prompt: string): Promise<string> {
-  let lastError: unknown = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    for (const model of GEMINI_MODELS) {
-      try {
-        return await callModel(model, prompt);
-      } catch (error) {
-        lastError = error;
-        if (error instanceof GeminiError) throw error;
-      }
+  let lastError: GeminiError | null = null;
+  let model = PRIMARY_MODEL;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await callModel(model, prompt);
+    } catch (error) {
+      lastError = error instanceof GeminiError ? error : new GeminiError("Gemini request failed.", true);
+      if (!lastError.retryable) throw lastError;
+      if (lastError.message === "Gemini model unavailable.") model = FALLBACK_MODEL;
+      if (attempt < MAX_ATTEMPTS - 1) await new Promise((resolve) => setTimeout(resolve, 250));
     }
-    if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 2000));
   }
-  throw lastError instanceof Error ? lastError : new GeminiError("Gemini request failed.");
+
+  throw lastError ?? new GeminiError("Gemini request failed.", true);
 }
 
 Deno.serve(async (req: Request) => {

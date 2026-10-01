@@ -1,63 +1,24 @@
-import { useState, useMemo } from 'react';
-import type { GeminiLesson, MultipleChoiceQuestion } from '@/types';
+import { useState } from 'react';
+import type { GeminiLesson } from '@/types';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
-import { Check, X, ArrowRight, Volume2, Shuffle, ArrowLeft, Zap, PenLine } from 'lucide-react';
+import { Check, X, ArrowRight, Volume2, Shuffle, Zap, PenLine, AlertTriangle } from 'lucide-react';
 import { sanitizeQuestionText } from '@/lib/questionText';
 
 interface Props {
   lesson: GeminiLesson;
-  onComplete: (score: number) => void;
+  onComplete: (score: number, weakWords: string[]) => void;
+  onInvalidContent: () => void;
 }
 
 type ExerciseType = 'mc' | 'fill' | 'sentence' | 'listening';
 
-function getQuestionWithVisualColor(question: MultipleChoiceQuestion): string {
-  const text = sanitizeQuestionText(question.question_en, question.options, question.correct_index);
-  if (/\bbird\b/i.test(text) && /what color|which color/i.test(text)) {
-    return text.replace(/🐦|🐤|🐥|🦜|🦆/u, '🐦🔵');
-  }
-  if (/\bdog\b/i.test(text) && /what color|which color/i.test(text)) {
-    return text.replace(/🐶|🐕/u, '🐶🟤');
-  }
-  return text;
-}
-
-function normalizeVisualQuestion(question: MultipleChoiceQuestion): MultipleChoiceQuestion {
-  const normalized: MultipleChoiceQuestion = {
-    ...question,
-    options: [...question.options],
-  };
-
-  if (/\bbird\b/i.test(question.question_en) && /🐦|🐤|🐥|🦜|🦆/.test(question.question_en) && /what color|which color/i.test(question.question_en)) {
-    normalized.options[question.correct_index] = 'blue';
-    normalized.explanation_vi = 'Con chim trong hình minh họa có màu xanh dương.';
-  }
-
-  if (/\bdog\b/i.test(question.question_en) && /🐶|🐕/.test(question.question_en) && /what color|which color/i.test(question.question_en)) {
-    normalized.options[question.correct_index] = 'brown';
-    normalized.explanation_vi = 'Con chó trong hình minh họa có màu nâu và trắng.';
-  }
-
-  return normalized;
-}
-
-function normalizeSentence(sentence: string): string {
-  return sentence.replace(
-    /\b(is|are|was|were)\s+(big|small|large|little|long|short|beautiful|cute|old|young)\s+(red|blue|green|yellow|black|white|brown|orange|pink|purple)\b/gi,
-    '$1 $2 and $3',
-  );
-}
-
-export function Stage2({ lesson, onComplete }: Props) {
+export function Stage2({ lesson, onComplete, onInvalidContent }: Props) {
   const { speak, supported: ttsSupported } = useSpeechSynthesis();
   const { multiple_choice, sentence_builder, listening, fill_in_blank } = lesson.stage2;
 
-  const correctSentence = useMemo(
-    () => normalizeSentence(sentence_builder.correct_sentence),
-    [sentence_builder.correct_sentence],
-  );
+  const correctSentence = sentence_builder.correct_sentence.trim();
 
-  const scrambledWords = useMemo(() => {
+  const scrambledWords: string[] = (() => {
     const words = correctSentence.split(/\s+/).filter(Boolean);
     const shuffled = [...words];
     let seed = sentence_builder.correct_sentence.length + 1;
@@ -70,12 +31,13 @@ export function Stage2({ lesson, onComplete }: Props) {
       [shuffled[0], shuffled[1]] = [shuffled[1], shuffled[0]];
     }
     return shuffled;
-  }, [correctSentence]);
+  })();
 
   const [exerciseIndex, setExerciseIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
+  const [weakWords, setWeakWords] = useState<string[]>([]);
 
   const [sentenceOrder, setSentenceOrder] = useState<number[]>([]);
   const [sentenceSubmitted, setSentenceSubmitted] = useState(false);
@@ -92,7 +54,11 @@ export function Stage2({ lesson, onComplete }: Props) {
   const currentType = exercises[exerciseIndex];
 
   const mcIndex = exerciseIndex <= 2 ? exerciseIndex : 0;
-  const currentMultipleChoice = normalizeVisualQuestion(multiple_choice[mcIndex]);
+  const currentMultipleChoice = multiple_choice[mcIndex];
+
+  const recordWeakWord = (word: string) => {
+    setWeakWords((words) => words.includes(word) ? words : [...words, word]);
+  };
 
   const handleFillAnswer = (index: number) => {
     if (fillSubmitted) return;
@@ -100,6 +66,8 @@ export function Stage2({ lesson, onComplete }: Props) {
     setFillSubmitted(true);
     if (index === fill_in_blank.correct_index) {
       setCorrectCount((c) => c + 1);
+    } else {
+      recordWeakWord(fill_in_blank.options[fill_in_blank.correct_index]);
     }
   };
 
@@ -109,6 +77,8 @@ export function Stage2({ lesson, onComplete }: Props) {
     setShowResult(true);
     if (index === currentMultipleChoice.correct_index) {
       setCorrectCount((c) => c + 1);
+    } else {
+      recordWeakWord(currentMultipleChoice.options[currentMultipleChoice.correct_index]);
     }
   };
 
@@ -119,7 +89,7 @@ export function Stage2({ lesson, onComplete }: Props) {
         (sentenceCorrect ? 1 : 0) +
         (listeningAnswer === listening.correct_index ? 1 : 0);
       const score = Math.round((totalCorrect / totalExercises) * 100);
-      onComplete(score);
+      onComplete(score, weakWords);
       return;
     }
     setExerciseIndex((i) => i + 1);
@@ -148,7 +118,11 @@ export function Stage2({ lesson, onComplete }: Props) {
     const correct = constructed.toLowerCase().trim() === correctSentence.toLowerCase().trim();
     setSentenceCorrect(correct);
     setSentenceSubmitted(true);
-    if (correct) setCorrectCount((c) => c + 1);
+    if (correct) {
+      setCorrectCount((c) => c + 1);
+    } else {
+      recordWeakWord(sentence_builder.correct_sentence);
+    }
   };
 
   const resetSentence = () => {
@@ -163,10 +137,25 @@ export function Stage2({ lesson, onComplete }: Props) {
     setListeningSubmitted(true);
     if (index === listening.correct_index) {
       setCorrectCount((c) => c + 1);
+    } else {
+      recordWeakWord(listening.image_options[listening.correct_index].label);
     }
   };
 
   const progress = ((exerciseIndex + 1) / totalExercises) * 100;
+
+  if (currentType === 'fill' && !fill_in_blank.option_category) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-12">
+        <div className="rounded-2xl bg-slate-800/80 border border-amber-500/20 p-6 text-center">
+          <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto mb-4" />
+          <h2 className="text-xl font-black text-white mb-2">Bài này cần được tạo lại</h2>
+          <p className="text-slate-400 mb-6">Nội dung cũ chưa qua bộ kiểm duyệt mới nên chưa được hiển thị.</p>
+          <button onClick={onInvalidContent} className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-bold">Tải lại bài học</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 pb-24 md:pb-6">
@@ -197,7 +186,7 @@ export function Stage2({ lesson, onComplete }: Props) {
       {currentType === 'mc' && multiple_choice[mcIndex] && (
         <div key={`mc-${exerciseIndex}`} className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
           <span className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-2 block">Trắc Nghiệm</span>
-          <p className="text-lg font-bold text-white mb-5">{getQuestionWithVisualColor(currentMultipleChoice)}</p>
+          <p className="text-lg font-bold text-white mb-5">{sanitizeQuestionText(currentMultipleChoice.question_en)}</p>
 
           <div className="space-y-3">
             {currentMultipleChoice.options.map((option, index) => {

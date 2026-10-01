@@ -13,6 +13,7 @@ export function PlacementTest({ onComplete }: Props) {
   const { profile } = useAuth();
   const [questions, setQuestions] = useState<PlacementQuestion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState(8);
   const [error, setError] = useState<string | null>(null);
   const [current, setCurrent] = useState(0);
   const [selected, setSelected] = useState<number | null>(null);
@@ -24,8 +25,17 @@ export function PlacementTest({ onComplete }: Props) {
     loadQuestions();
   }, []);
 
+  useEffect(() => {
+    if (!loading) return;
+    const timer = window.setInterval(() => {
+      setLoadingProgress((progress) => Math.min(92, progress + 4));
+    }, 300);
+    return () => window.clearInterval(timer);
+  }, [loading]);
+
   const loadQuestions = async () => {
     setLoading(true);
+    setLoadingProgress(8);
     setError(null);
     try {
       const data = await generatePlacementQuestions();
@@ -64,8 +74,8 @@ export function PlacementTest({ onComplete }: Props) {
     const total = questions.length;
     const ratio = correctCount / total;
     let level: Level;
-    if (ratio <= 0.4) level = 'Beginner';
-    else if (ratio <= 0.73) level = 'Intermediate';
+    if (correctCount <= 10) level = 'Beginner';
+    else if (correctCount < 15) level = 'Intermediate';
     else level = 'Advanced';
     setShowResults(true);
     setTimeout(() => onComplete(level), 3000);
@@ -78,6 +88,10 @@ export function PlacementTest({ onComplete }: Props) {
           <Sparkles className="w-12 h-12 text-amber-400 mx-auto mb-4 animate-spin" />
           <p className="text-white text-lg font-bold">Đang tải bài kiểm tra...</p>
           <p className="text-slate-400 text-sm mt-2">Gemini AI đang tạo câu hỏi cho bé</p>
+          <div className="w-72 max-w-full h-2 bg-white/10 rounded-full overflow-hidden mt-6">
+            <div className="h-full bg-gradient-to-r from-amber-400 to-red-500 transition-all duration-300" style={{ width: `${loadingProgress}%` }} />
+          </div>
+          <p className="text-xs text-slate-500 mt-2">{loadingProgress}%</p>
         </div>
       </div>
     );
@@ -104,8 +118,8 @@ export function PlacementTest({ onComplete }: Props) {
     const total = questions.length;
     const ratio = correctCount / total;
     let level: Level;
-    if (ratio <= 0.4) level = 'Beginner';
-    else if (ratio <= 0.73) level = 'Intermediate';
+    if (correctCount <= 10) level = 'Beginner';
+    else if (correctCount < 15) level = 'Intermediate';
     else level = 'Advanced';
 
     return (
@@ -159,7 +173,7 @@ export function PlacementTest({ onComplete }: Props) {
         </div>
 
         <div key={current} className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
-          <p className="text-xl font-bold text-white mb-6">{sanitizeQuestionText(question.question_en, question.options, question.correct_index)}</p>
+          <p className="text-xl font-bold text-white mb-6">{sanitizeQuestionText(question.question_en)}</p>
 
           <div className="space-y-3">
             {question.options.map((option, index) => {

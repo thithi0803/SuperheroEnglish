@@ -72,7 +72,7 @@ export function Stage1({ lesson, onComplete }: Props) {
           <BookOpen className="w-5 h-5 text-green-400" />
           Từ Vựng
         </h3>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {vocab.map((item, i) => (
             <div
               key={i}

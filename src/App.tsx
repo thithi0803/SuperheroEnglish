@@ -49,12 +49,18 @@ function AppContent() {
     window.scrollTo({ top: 0 });
   };
 
-  const handleLessonComplete = async (score: number, stars: number, xp: number) => {
+  const handleLessonComplete = async (
+    score: number,
+    stars: number,
+    xp: number,
+    learnedWords: string[],
+    weakWords: string[],
+  ) => {
     if (!session?.user || !activeLesson) return;
     const level = profile?.placement_level || 'Beginner';
     const lessonKey = `${activeLesson.topic}-${level}-${activeLesson.lessonIndex}`;
     try {
-      await saveLessonCompletion(session.user.id, lessonKey, score, stars, xp);
+      await saveLessonCompletion(session.user.id, lessonKey, score, stars, xp, learnedWords, weakWords);
       await refreshProfile();
     } catch (err) {
       console.error('Failed to save completion:', err);

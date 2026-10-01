@@ -17,7 +17,9 @@ export async function saveLessonCompletion(
   lessonKey: string,
   score: number,
   stars: number,
-  xpEarned: number
+  xpEarned: number,
+  learnedWords: string[],
+  weakWords: string[],
 ): Promise<void> {
   const { error } = await supabase
     .from('lesson_completions')
@@ -27,6 +29,8 @@ export async function saveLessonCompletion(
       score,
       stars,
       xp_earned: xpEarned,
+      learned_words: learnedWords,
+      weak_words: weakWords,
     });
 
   if (error) throw error;
@@ -52,6 +56,31 @@ export function calculateStars(score: number): number {
   if (score >= 90) return 3;
   if (score >= 70) return 2;
   return 1;
+}
+
+export function getLearningMemory(completions: LessonCompletion[]): {
+  learnedWordsByLesson: Record<string, string[]>;
+  allLearnedWords: string[];
+  weakWords: string[];
+} {
+  const learnedWordsByLesson: Record<string, string[]> = {};
+  const allLearnedWords = new Set<string>();
+  const weakWords = new Set<string>();
+
+  for (const completion of completions) {
+    const learnedWords = completion.learned_words ?? [];
+    learnedWordsByLesson[completion.lesson_key] = [
+      ...new Set([...(learnedWordsByLesson[completion.lesson_key] ?? []), ...learnedWords]),
+    ];
+    learnedWords.forEach((word) => allLearnedWords.add(word));
+    (completion.weak_words ?? []).forEach((word) => weakWords.add(word));
+  }
+
+  return {
+    learnedWordsByLesson,
+    allLearnedWords: [...allLearnedWords],
+    weakWords: [...weakWords],
+  };
 }
 
 export function calculateXp(score: number, level: Level): number {
