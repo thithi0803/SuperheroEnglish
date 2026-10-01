@@ -11,16 +11,15 @@ interface Props {
 
 type ExerciseType = 'mc' | 'fill' | 'sentence' | 'listening';
 
-const blueBirdIllustration = {
-  src: 'https://images.pexels.com/photos/20845725/pexels-photo-20845725.jpeg?auto=compress&cs=tinysrgb&h=650&w=940',
-  alt: 'A blue bird sitting on a branch',
-};
-
-function getIllustrationForQuestion(question: string): typeof blueBirdIllustration | null {
-  if (/\bbird\b/i.test(question) && /what color|which color/i.test(question)) {
-    return blueBirdIllustration;
+function getQuestionWithVisualColor(question: MultipleChoiceQuestion): string {
+  const text = sanitizeQuestionText(question.question_en, question.options, question.correct_index);
+  if (/\bbird\b/i.test(text) && /what color|which color/i.test(text)) {
+    return text.replace(/🐦|🐤|🐥|🦜|🦆/u, '🐦🔵');
   }
-  return null;
+  if (/\bdog\b/i.test(text) && /what color|which color/i.test(text)) {
+    return text.replace(/🐶|🐕/u, '🐶🟤');
+  }
+  return text;
 }
 
 function normalizeVisualQuestion(question: MultipleChoiceQuestion): MultipleChoiceQuestion {
@@ -29,7 +28,7 @@ function normalizeVisualQuestion(question: MultipleChoiceQuestion): MultipleChoi
     options: [...question.options],
   };
 
-  if (/\bbird\b/i.test(question.question_en) && /🐦/.test(question.question_en) && /what color|which color/i.test(question.question_en)) {
+  if (/\bbird\b/i.test(question.question_en) && /🐦|🐤|🐥|🦜|🦆/.test(question.question_en) && /what color|which color/i.test(question.question_en)) {
     normalized.options[question.correct_index] = 'blue';
     normalized.explanation_vi = 'Con chim trong hình minh họa có màu xanh dương.';
   }
@@ -198,18 +197,7 @@ export function Stage2({ lesson, onComplete }: Props) {
       {currentType === 'mc' && multiple_choice[mcIndex] && (
         <div key={`mc-${exerciseIndex}`} className="animate-fade-in rounded-2xl bg-slate-800/80 border border-white/10 p-6">
           <span className="text-xs font-bold uppercase tracking-wider text-cyan-400 mb-2 block">Trắc Nghiệm</span>
-          {getIllustrationForQuestion(multiple_choice[mcIndex].question_en) && (
-            <div className="mb-5 overflow-hidden rounded-xl border border-cyan-400/20 bg-slate-900/60">
-              <img
-                src={getIllustrationForQuestion(multiple_choice[mcIndex].question_en)?.src}
-                alt={getIllustrationForQuestion(multiple_choice[mcIndex].question_en)?.alt}
-                loading="lazy"
-                className="mx-auto h-44 w-full object-cover sm:h-52"
-              />
-              <p className="px-3 py-2 text-center text-xs text-slate-400">Hình minh họa: chim xanh</p>
-            </div>
-          )}
-          <p className="text-lg font-bold text-white mb-5">{sanitizeQuestionText(currentMultipleChoice.question_en, currentMultipleChoice.options, currentMultipleChoice.correct_index)}</p>
+          <p className="text-lg font-bold text-white mb-5">{getQuestionWithVisualColor(currentMultipleChoice)}</p>
 
           <div className="space-y-3">
             {currentMultipleChoice.options.map((option, index) => {

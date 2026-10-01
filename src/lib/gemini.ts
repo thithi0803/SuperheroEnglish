@@ -55,7 +55,65 @@ export function getTopicList(): { topic: string; emoji: string }[] {
   ];
 }
 
-function buildPrompt(req: LessonRequest): string {
+const topicScope: Record<string, { focus: string; answerExamples: string; forbidden: string }> = {
+  'Greetings and Introductions': {
+    focus: 'greetings, names, introductions, and polite leave-taking',
+    answerExamples: 'hello, hi, goodbye, name, friend',
+    forbidden: 'animal names, colors, food, numbers, body parts, sports',
+  },
+  'Colors and Animals': {
+    focus: 'common animal names and the colors shown by the lesson emojis',
+    answerExamples: 'cat, dog, bird, fish, blue, red, green, yellow',
+    forbidden: 'counting questions, family roles, food, classroom objects, sports',
+  },
+  'Numbers and Counting': {
+    focus: 'counting objects, number words, and simple addition or subtraction',
+    answerExamples: 'one, two, three, four, five, six, seven, eight, nine, ten',
+    forbidden: 'animal names, colors, food, family roles, body parts, sports, classroom objects',
+  },
+  'Family Members': {
+    focus: 'family roles and simple family relationships',
+    answerExamples: 'mother, father, sister, brother, grandmother, grandfather',
+    forbidden: 'animal names, colors, counting, food, sports, classroom objects',
+  },
+  'Food and Drinks': {
+    focus: 'common foods, drinks, tastes, and meals',
+    answerExamples: 'apple, bread, rice, milk, water, juice',
+    forbidden: 'animal names, colors as the main target, counting, family roles, sports',
+  },
+  'Daily Routines': {
+    focus: 'everyday actions and times of day',
+    answerExamples: 'wake up, eat, study, play, sleep, morning, evening',
+    forbidden: 'animal names, colors, food vocabulary as the main target, family roles, sports',
+  },
+  'Body Parts': {
+    focus: 'common body parts and simple actions using them',
+    answerExamples: 'head, hand, eye, ear, nose, mouth, foot',
+    forbidden: 'animal names, colors, counting, food, family roles, sports',
+  },
+  'Weather and Seasons': {
+    focus: 'weather conditions and the four seasons',
+    answerExamples: 'sunny, rainy, cloudy, windy, hot, cold, spring, summer',
+    forbidden: 'animal names, counting, food, family roles, classroom objects',
+  },
+  'School and Classroom': {
+    focus: 'classroom objects, school actions, and simple instructions',
+    answerExamples: 'book, pen, desk, chair, teacher, read, write',
+    forbidden: 'animal names, colors as the main target, counting, food, family roles',
+  },
+  'Hobbies and Sports': {
+    focus: 'hobbies, games, and sports actions',
+    answerExamples: 'football, swim, run, draw, sing, read, dance',
+    forbidden: 'animal names, colors, counting, food, family roles, classroom objects',
+  },
+};
+
+function buildPrompt(req: LessonRequest): string { 
+  const scope = topicScope[req.topic] ?? {
+    focus: req.topic,
+    answerExamples: req.topic,
+    forbidden: 'all unrelated topics',
+  };
   const levelGuidance = {
     Beginner: 'Use very simple words suitable for ages 5-7. Basic 3-4 letter words. Present tense only.',
     Intermediate: 'Use simple words suitable for ages 8-10. Include simple past tense and basic adjectives.',
@@ -68,6 +126,13 @@ Topic: "${req.topic}"
 Level: ${req.level}
 ${levelGuidance[req.level]}
 
+STRICT LESSON SCOPE:
+- This lesson is isolated to the topic above: ${scope.focus}.
+- Every vocabulary item, example, grammar sentence, multiple-choice question, fill-in-the-blank, sentence builder, listening sentence, image label, and answer option must teach or directly practice this topic.
+- Valid answer examples for this topic include: ${scope.answerExamples}.
+- Do not use material from these unrelated topics: ${scope.forbidden}.
+- Do not fill missing questions with examples from another lesson. If a subtopic needs variety, create another example within this same topic.
+
 CRITICAL LANGUAGE AND CONTENT RULES:
 - ALL English text fields MUST contain ONLY English. NEVER mix Vietnamese into English fields.
 - ALL Vietnamese text fields MUST contain ONLY Vietnamese. NEVER mix English into Vietnamese fields.
@@ -75,9 +140,9 @@ CRITICAL LANGUAGE AND CONTENT RULES:
 - Fill-in-the-blank sentences MUST use three underscores "___" at the missing word position.
 - Every exercise must be factually sensible for a child and consistent with ordinary real life.
 - Do not make a color claim about an ordinary animal as if all animals of that kind have one fixed color. A real dog or bird can have many different colors.
-- A color question about an animal is allowed ONLY when the question includes a specific visual cue, such as an image emoji or an explicitly described drawing/toy. The answer must match that visible cue. For example: "Look at the blue bird 🐦. What color is it?" with "blue" as the correct answer. Never ask "What color is the bird?" and invent a color without a visual cue.
-- For a bird color question, use the exact blue bird emoji 🐦 as the visual cue and use "blue" as the correct answer. Do not use the red bird emoji 🐦 or another color for that same pictured emoji.
-- If the visual emoji does not show one clear color, do not create a color question; choose another question type.
+- A color question about an animal is allowed ONLY when the question includes a specific visual cue made from emoji. The answer must match that visible cue. For example: "What color is the bird 🐦🔵?" with "blue" as the correct answer. Never ask "What color is the bird?" and invent a color without a visual cue.
+- Do not use a stock photo or external image in the lesson data. Use emoji only. For a blue bird color question, use 🐦🔵 and use "blue" as the correct answer. The word "blue" must not appear in the question stem.
+- If the emoji does not show one clear color, do not create a color question; choose another question type.
 - If you use superheroes, monsters, magic, or imaginary characters, clearly identify them as fictional or name the imaginary character. Do not present fantasy details as facts about ordinary real-world objects.
 - Before returning JSON, fact-check every question, correct answer, example, image label, and Vietnamese explanation against the actual visual cue. Each question must have one unambiguous answer.
 - Never write an explanation that merely repeats an impossible premise; replace the question with a realistic one instead.
@@ -112,7 +177,7 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
   "stage2": {
     "multiple_choice": [
       {
-        "question_en": "English question with the complete noun and an optional emoji beside it (e.g. 'What color is the dog 🐶?' NOT a question that uses only an emoji)",
+        "question_en": "English question that does not reveal the answer in words; use a blank when the target word would otherwise appear in the stem",
         "question_vi": "Vietnamese translation of the question (Vietnamese only)",
         "options": ["English option 1", "English option 2", "English option 3", "English option 4"],
         "correct_index": 0,
@@ -163,9 +228,12 @@ Generate a JSON object with EXACTLY this structure (respond with ONLY the JSON, 
 IMPORTANT RULES:
 - Generate exactly 3 vocabulary items in stage1.vocab
 - Generate exactly 3 multiple choice questions in stage2.multiple_choice
-- CRITICAL for multiple_choice: The question MUST NOT reveal the answer. NEVER replace an English noun, character name, or vocabulary word with an emoji alone. Always include the complete English word and optionally place an emoji beside it: "What color is the dog 🐶?" or "What does the superhero 🦸‍♂️ say to a friend?". Do not use "What color is 🐶?" or "What does 🦸‍♂️ say?".
-- For visual color questions, include the pictured emoji in question_en and make the wording refer to the picture, such as "Look at this bird 🐦. What color is it?" The correct option must match the emoji shown. For the blue bird emoji 🐦, the only correct answer is "blue". Do not use a different color just because it is a valid color for that animal in real life.
-- Do not ask a generic animal color question without a pictured emoji or explicit description. A real bird can be blue, red, green, white, black, or many other colors; the lesson must not pretend otherwise.
+- CRITICAL for multiple_choice: The question MUST NOT reveal the answer in words. Never put the target answer in the question and then ask "What is it?". For example, NEVER write "The superhero has a small cat 🐱. What is it?" with "cat" as an option.
+- If the target word is an animal, use a blank: "The superhero has a small ___ 🐱. What animal is it?" with four animal options. The emoji is a visual cue, not a written answer. The word "cat" must not appear in the question stem.
+- Every multiple-choice question must have exactly four options from the same answer category. Do not mix animals, colors, adjectives, numbers, or unrelated words in one set. For example, "cat, red, dog, fast" is forbidden.
+- For visual color questions, include an emoji plus a clear color marker, such as "What color is the bird 🐦🔵?" The color must be represented visually, not written as a word in the question. The correct option must match the visual marker. Do not use a different color just because it is possible for that animal in real life.
+- Do not ask a generic animal color question without a visual color marker. A real bird can be blue, red, green, white, black, or many other colors; the lesson must not pretend otherwise.
+- Before returning JSON, verify the topic, the question wording, every option category, and every correct index. No answer may already appear as a written word in its question.
 - The fill_in_blank.sentence MUST contain "___" (three underscores) at the missing word position
 - The fill_in_blank.options must have exactly 4 English word choices
 - The sentence_builder.scrambled_words must contain exactly the same words as correct_sentence, only shuffled
@@ -182,16 +250,67 @@ IMPORTANT RULES:
 - GRAMMAR RULE: Every English sentence must be 100% grammatically correct and natural. Adjective order must follow English rules (opinion → size → color, e.g. "a big red cat" NOT "a red big cat"). Never produce word-salad sentences`;
 }
 
-function hasBasicContentError(lesson: GeminiLesson): boolean {
+const answerCategories: Record<string, Set<string>> = {
+  animals: new Set(['cat', 'dog', 'bird', 'fish', 'rabbit', 'mouse', 'cow', 'pig', 'frog', 'lion', 'tiger']),
+  colors: new Set(['red', 'blue', 'green', 'yellow', 'black', 'white', 'brown', 'orange', 'pink', 'purple']),
+  numbers: new Set(['one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten']),
+  family: new Set(['mother', 'father', 'mom', 'dad', 'sister', 'brother', 'grandmother', 'grandfather']),
+  food: new Set(['apple', 'bread', 'rice', 'milk', 'water', 'juice', 'banana', 'egg', 'cake']),
+  body: new Set(['head', 'hand', 'eye', 'ear', 'nose', 'mouth', 'foot', 'leg', 'arm']),
+};
+
+const topicForbiddenTerms: Record<string, string[]> = {
+  'Numbers and Counting': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.food, ...answerCategories.family],
+  'Greetings and Introductions': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food],
+  'Colors and Animals': [...answerCategories.numbers, ...answerCategories.family, ...answerCategories.food, ...answerCategories.body],
+  'Family Members': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food],
+  'Food and Drinks': [...answerCategories.animals, ...answerCategories.family, ...answerCategories.body],
+  'Daily Routines': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food, ...answerCategories.family, ...answerCategories.body],
+  'Body Parts': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food],
+  'Weather and Seasons': [...answerCategories.animals, ...answerCategories.numbers, ...answerCategories.food, ...answerCategories.family, ...answerCategories.body],
+  'School and Classroom': [...answerCategories.animals, ...answerCategories.family, ...answerCategories.food],
+  'Hobbies and Sports': [...answerCategories.animals, ...answerCategories.colors, ...answerCategories.numbers, ...answerCategories.food, ...answerCategories.family, ...answerCategories.body],
+};
+
+function classifyAnswer(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  return Object.entries(answerCategories).find(([, values]) => values.has(normalized))?.[0] ?? null;
+}
+
+function containsWholeAnswer(text: string, answer: string): boolean {
+  const normalizedText = text.toLowerCase().replace(/[^a-z\s]/g, ' ');
+  const normalizedAnswer = answer.toLowerCase().trim().replace(/[^a-z\s]/g, ' ');
+  if (!normalizedAnswer) return false;
+  const answerPattern = normalizedAnswer.replace(/\s+/g, '\\s+');
+  return new RegExp(`(^|\\s)${answerPattern}($|\\s)`).test(normalizedText);
+}
+
+function hasBasicContentError(lesson: GeminiLesson, topic: string, level: Level): boolean {
+  if (lesson.topic !== topic || lesson.level !== level) return true;
+  if (lesson.stage2.multiple_choice.length !== 3) return true;
+
+  const lessonText = JSON.stringify({
+    vocab: lesson.stage1.vocab,
+    multiple_choice: lesson.stage2.multiple_choice,
+    fill_in_blank: lesson.stage2.fill_in_blank,
+    sentence_builder: lesson.stage2.sentence_builder,
+    listening: lesson.stage2.listening,
+  }).toLowerCase();
+  const forbiddenTerms = topicForbiddenTerms[topic] ?? [];
+  if (forbiddenTerms.some((term) => new RegExp(`\\b${term}\\b`, 'i').test(lessonText))) return true;
+
   return lesson.stage2.multiple_choice.some((question) => {
     const questionText = question.question_en.trim();
     const correctAnswer = question.options[question.correct_index]?.trim().toLowerCase();
-    const asksColor = /what color|which color|màu gì/i.test(questionText);
+    const asksColor = /what color|which color/i.test(questionText);
     const hasVisualCue = /🐦|🦜|🐶|🐕|🐱|🐈|🐰|🐭|🐮|🐷|🐸|🦁|🐯|🐻|🐼|🐨|🐵|🦊|🐺|🐴|🦄|🐔|🦆|🦉|🦋|🐝|🐠|🐟|🦈/.test(questionText)
       || /drawing|picture|image|toy|cartoon/i.test(questionText);
+    const optionCategories = new Set(question.options.map(classifyAnswer).filter((category): category is string => category !== null));
 
     if (asksColor && !hasVisualCue) return true;
-    if (/\b(bird|the bird)\b/i.test(questionText) && /🐦/.test(questionText) && correctAnswer !== 'blue') return true;
+    if (optionCategories.size > 1 || (optionCategories.size === 1 && question.options.some((option) => classifyAnswer(option) === null))) return true;
+    if (containsWholeAnswer(questionText, correctAnswer)) return true;
+    if (/\b(bird|the bird)\b/i.test(questionText) && /🐦|🐤|🐥|🦜|🦆/.test(questionText) && correctAnswer !== 'blue') return true;
     if (/\b(dog|the dog)\b/i.test(questionText) && /🐶|🐕/.test(questionText) && correctAnswer === 'blue') return true;
 
     return false;
@@ -202,12 +321,12 @@ export async function generateLesson(req: LessonRequest): Promise<GeminiLesson> 
   console.log(`[Gemini] Generating lesson: topic="${req.topic}", level=${req.level}, index=${req.lessonIndex}`);
 
   try {
-    const qualityReminder = '\n\nQUALITY CHECK: The previous attempt contained an everyday-knowledge error. Recheck every real-world fact before returning JSON. Do not ask about an ordinary dog, grass, sky, or banana with an unusual color as the correct answer. If unsure, replace the question with a simple, realistic question.';
+    const qualityReminder = '\n\nQUALITY CHECK: The previous attempt violated lesson isolation or revealed an answer. Rebuild every exercise using only the requested topic. Keep all four options in one semantic category, remove any written answer from the question stem, and never borrow examples from another lesson.';
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const text = await callGemini(buildPrompt(req) + (attempt > 0 ? qualityReminder : ''));
       const lesson = parseJsonResponse<GeminiLesson>(text);
-      if (!hasBasicContentError(lesson)) {
+      if (!hasBasicContentError(lesson, req.topic, req.level)) {
         console.log(`[Gemini] Lesson generated successfully: "${lesson.title_en}" with ${lesson.stage1.vocab.length} vocab items`);
         return lesson;
       }
